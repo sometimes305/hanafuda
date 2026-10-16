@@ -18,7 +18,7 @@
   months.forEach((month, monthIndex) => {
     month.cards.forEach(([key, type, glyph], cardIndex) => cards.push({
       id: `${monthIndex + 1}-${cardIndex + 1}`,
-      asset: `assets/cards/${monthIndex * 4 + cardIndex}.webp`,
+      asset: `assets/cards/${monthIndex * 4 + cardIndex}.png`,
       month: monthIndex + 1,
       monthName: month.name,
       palette: month.color,
