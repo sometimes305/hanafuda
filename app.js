@@ -890,23 +890,23 @@ function usesMobileMotionProfile() {
 }
 
 function drawRevealDuration() {
-  if (prefersReducedMotion()) return REDUCED_DRAW_REVEAL_DURATION;
-  return usesMobileMotionProfile() ? MOBILE_DRAW_REVEAL_DURATION : DRAW_REVEAL_DURATION;
+  if (usesMobileMotionProfile()) return MOBILE_DRAW_REVEAL_DURATION;
+  return prefersReducedMotion() ? REDUCED_DRAW_REVEAL_DURATION : DRAW_REVEAL_DURATION;
 }
 
 function captureFlightDuration() {
-  if (prefersReducedMotion()) return REDUCED_CAPTURE_FLIGHT_DURATION;
-  return usesMobileMotionProfile() ? MOBILE_CAPTURE_FLIGHT_DURATION : CAPTURE_FLIGHT_DURATION;
+  if (usesMobileMotionProfile()) return MOBILE_CAPTURE_FLIGHT_DURATION;
+  return prefersReducedMotion() ? REDUCED_CAPTURE_FLIGHT_DURATION : CAPTURE_FLIGHT_DURATION;
 }
 
 function captureFlightStagger() {
-  if (prefersReducedMotion()) return 30;
-  return usesMobileMotionProfile() ? MOBILE_CAPTURE_FLIGHT_STAGGER : CAPTURE_FLIGHT_STAGGER;
+  if (usesMobileMotionProfile()) return MOBILE_CAPTURE_FLIGHT_STAGGER;
+  return prefersReducedMotion() ? 30 : CAPTURE_FLIGHT_STAGGER;
 }
 
 function captureLandHoldDuration() {
-  if (prefersReducedMotion()) return REDUCED_CAPTURE_LAND_HOLD_DURATION;
-  return usesMobileMotionProfile() ? MOBILE_CAPTURE_LAND_HOLD_DURATION : CAPTURE_LAND_HOLD_DURATION;
+  if (usesMobileMotionProfile()) return MOBILE_CAPTURE_LAND_HOLD_DURATION;
+  return prefersReducedMotion() ? REDUCED_CAPTURE_LAND_HOLD_DURATION : CAPTURE_LAND_HOLD_DURATION;
 }
 
 function waitForMotion(duration) {

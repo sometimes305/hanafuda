@@ -451,13 +451,6 @@ button.card { cursor: pointer; }
 @keyframes openingFirstMark { from { opacity: 0; transform: rotate(-18deg) scale(.55); } to { opacity: 1; transform: rotate(-7deg) scale(1); } }
 @keyframes openingResultIn { from { transform: translateY(8px); opacity: 0; } to { opacity: 1; } }
 
-@media (max-width: 720px), (hover: none), (pointer: coarse) {
-  .deck-pile.drawing { animation-duration: 5200ms; }
-  .drawn-card-preview.revealing .drawn-card,
-  .drawn-card-preview.revealing .card-face,
-  .drawn-card-preview.revealing .drawn-card::after { animation-duration: 4800ms; }
-}
-
 .choice-overlay { position: fixed; inset: 0; z-index: 30; max-width: 520px; margin: auto; display: grid; place-items: center; overflow: hidden; padding: 24px; background: #060504d6; backdrop-filter: blur(6px); animation: choiceBackdropIn 900ms ease-out both; }
 .choice-overlay::before { content: ""; position: absolute; inset: -25%; background: radial-gradient(circle, #bc91402b, transparent 42%); opacity: .65; animation: backdropWash 1400ms cubic-bezier(.16, 1, .3, 1) both; pointer-events: none; }
 .choice-overlay[data-scene="loss"]::before { background: radial-gradient(circle at 50% 38%, #b8af9840, #05050410 36%, #000 70%); opacity: .42; }
@@ -684,6 +677,13 @@ button.card { cursor: pointer; }
   .drawn-card-preview.revealing .drawn-card::after { animation-name: deckFlipBackReduced !important; animation-duration: 320ms !important; }
   .turn-banner.tap-prompt,
   .card-row.hand .card.selected { animation: none !important; }
+}
+
+@media (max-width: 720px), (hover: none), (pointer: coarse) {
+  .deck-pile.drawing { animation-duration: 5200ms !important; }
+  .drawn-card-preview.revealing .drawn-card,
+  .drawn-card-preview.revealing .card-face,
+  .drawn-card-preview.revealing .drawn-card::after { animation-duration: 4800ms !important; }
 }
 
 @keyframes deckFlipTiltReduced {

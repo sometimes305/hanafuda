@@ -4,8 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0d0b08" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>花札 こいこい</title>
-    <link rel="stylesheet" href="style.css?v=31" />
+    <link rel="stylesheet" href="style.css?v=32" />
     <script src="https://cdn.gravity.place/fe/sdk/index-1.0.2.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
   </head>
@@ -175,7 +178,23 @@
     </dialog>
 
     <script src="cards.js?v=3"></script>
-    <script src="app.js?v=33"></script>
+    <script src="app.js?v=34"></script>
     <script src="online.js?v=4"></script>
+    <script>
+      (() => {
+        const current = document.querySelector('script[src*="app.js?v="]')?.src.match(/app\.js\?v=(\d+)/)?.[1];
+        fetch(`${location.pathname}?fresh=${Date.now()}`, { cache: "no-store" })
+          .then((response) => response.text())
+          .then((html) => {
+            const latest = html.match(/app\.js\?v=(\d+)/)?.[1];
+            if (!current || !latest || current === latest) return;
+            const url = new URL(location.href);
+            if (url.searchParams.get("build") === latest) return;
+            url.searchParams.set("build", latest);
+            location.replace(url);
+          })
+          .catch(() => {});
+      })();
+    </script>
   </body>
 </html>
