@@ -4,11 +4,12 @@ const MATCH_LENGTHS = [3, 6, 12];
 const MATCH_LENGTH_LABELS = { 3: "三局", 6: "六局", 12: "十二局" };
 const CAPTURE_GROUPS = [["bright", "光"], ["animal", "たね"], ["ribbon", "短冊"], ["chaff", "かす"]];
 const DRAW_REVEAL_DURATION = 3600;
-const CAPTURE_FLIGHT_DURATION = 2200;
+const CARD_TRAVEL_DURATION = 1500;
+const CAPTURE_FLIGHT_DURATION = CARD_TRAVEL_DURATION;
 const CAPTURE_FLIGHT_STAGGER = 170;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
-const PLAY_FLIGHT_DURATION = 1380;
-const DRAW_TO_FIELD_DURATION = 1440;
+const PLAY_FLIGHT_DURATION = CARD_TRAVEL_DURATION;
+const DRAW_TO_FIELD_DURATION = CARD_TRAVEL_DURATION;
 const MATCH_SLIDE_DURATION = 780;
 const PLAY_LAND_HOLD_DURATION = 460;
 const DRAW_TO_FIELD_HOLD_DURATION = 420;
@@ -1778,12 +1779,15 @@ function renderRoundIntro() {
     choice.style.setProperty("--meta-delay", `${flipDelay + 760}ms`);
     const back = document.createElement("span");
     back.className = "opening-card-back";
-    stage.append(back);
+    const flipper = document.createElement("span");
+    flipper.className = "opening-card-flipper";
+    flipper.append(back);
     if (isRevealing && isPicked && id && CARD_MAP.has(id)) {
       const face = createCardElement(id);
       face.classList.add("opening-card-face");
-      stage.append(face);
+      flipper.append(face);
     }
+    stage.append(flipper);
     if (isPicked) {
       const owner = document.createElement("span");
       owner.className = "opening-card-owner";
