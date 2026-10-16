@@ -209,9 +209,9 @@ input:focus, select:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 
 .drawn-card-preview .card { width: 100%; height: 100%; background: transparent; box-shadow: 0 0 0 2px var(--gold-bright), 0 5px 8px #000b; -webkit-transform-style: preserve-3d; transform-style: preserve-3d; }
 .drawn-card-preview .card-face { -webkit-backface-visibility: hidden; backface-visibility: hidden; -webkit-transform: rotateY(0deg) translateZ(.2px); transform: rotateY(0deg) translateZ(.2px); transform-origin: 12% 50%; }
 .drawn-card-preview .drawn-card::after { content: ""; position: absolute; inset: 0; z-index: 3; border-radius: 3px; background: #8f0500 url("assets/cards/48.png") center / 100% 100%; -webkit-backface-visibility: hidden; backface-visibility: hidden; -webkit-transform: rotateY(90deg); transform: rotateY(90deg); transform-origin: 12% 50%; }
-.drawn-card-preview.revealing .drawn-card { animation: deckFlipTilt 500ms cubic-bezier(.45, 0, .2, 1) both; }
-.drawn-card-preview.revealing .card-face { animation: deckFlipFront 500ms cubic-bezier(.45, 0, .2, 1) both; }
-.drawn-card-preview.revealing .drawn-card::after { animation: deckFlipBack 500ms cubic-bezier(.45, 0, .2, 1) both; }
+.drawn-card-preview.revealing .drawn-card { animation: deckFlipTilt 300ms cubic-bezier(.45, 0, .2, 1) both; }
+.drawn-card-preview.revealing .card-face { animation: deckFlipFront 300ms cubic-bezier(.45, 0, .2, 1) both; }
+.drawn-card-preview.revealing .drawn-card::after { animation: deckFlipBack 300ms cubic-bezier(.45, 0, .2, 1) both; }
 .drawn-card-preview .card.committed { opacity: 0; }
 @keyframes deckPulse { 45% { transform: translateY(-3px) rotate(-1deg); filter: drop-shadow(0 7px 5px #000d) brightness(1.12); } }
 @keyframes deckFlipTilt {
