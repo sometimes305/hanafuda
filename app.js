@@ -38,6 +38,7 @@ const REDUCED_ROUND_DEAL_STAGGER = 24;
 const REDUCED_ROUND_DEAL_HOLD_DURATION = 90;
 const CARD_MAP = new Map(window.HanafudaCards.cards.map((card) => [card.id, card]));
 const CARD_ID_BY_KEY = new Map(window.HanafudaCards.cards.filter((card) => card.key !== "plain").map((card) => [card.key, card.id]));
+const CARD_ART_READY = new Map();
 
 let localPlayerName = "Player";
 let localPlayerIcon = null;
@@ -657,7 +658,7 @@ async function resolveAgainstField(cardId, matchId, actorSeat) {
   await captureCards(actorSeat, [cardId, matchId]);
 }
 
-function drawCard(actorSeat) {
+async function drawCard(actorSeat) {
   const drawn = state.deck.pop();
   if (!drawn) {
     finishResolution(actorSeat);
@@ -665,6 +666,8 @@ function drawCard(actorSeat) {
   }
   state.phase = "draw";
   state.pending = { actorSeat, drawnCard: drawn };
+  await ensureCardArtworkReady(drawn);
+  if (state.phase !== "draw" || state.pending?.drawnCard !== drawn || state.pending?.actorSeat !== actorSeat) return;
   persistAndRender();
   clearTimeout(drawTimer);
   drawTimer = window.setTimeout(() => {
@@ -931,6 +934,39 @@ function waitForMotion(duration) {
   return new Promise((resolve) => window.setTimeout(resolve, duration));
 }
 
+function ensureCardArtworkReady(cardId) {
+  const card = CARD_MAP.get(cardId);
+  if (!card?.asset) return Promise.resolve();
+  const cached = CARD_ART_READY.get(cardId);
+  if (cached) return cached.ready;
+
+  const image = new Image();
+  image.decoding = "async";
+  image.fetchPriority = "low";
+  let finish;
+  const ready = new Promise((resolve) => { finish = resolve; });
+  const settle = () => {
+    image.onload = null;
+    image.onerror = null;
+    finish();
+  };
+  image.onload = settle;
+  image.onerror = settle;
+  image.src = card.asset;
+  if (image.complete) {
+    if (typeof image.decode === "function") image.decode().catch(() => {}).finally(settle);
+    else queueMicrotask(settle);
+  }
+  CARD_ART_READY.set(cardId, { image, ready });
+  return ready;
+}
+
+function warmCardArtworkCache() {
+  const warm = () => CARD_MAP.forEach((_card, id) => ensureCardArtworkReady(id));
+  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(warm, { timeout: 1800 });
+  else window.setTimeout(warm, 0);
+}
+
 function previewCaptureFor(cardId, active = true) {
   const month = CARD_MAP.get(cardId)?.month;
   els.field.querySelectorAll(".card").forEach((element) => {
@@ -1073,6 +1109,7 @@ async function animateDrawnCardToField(cardId, fieldCardId = null, options = {})
 async function animatePlayedCard(sourceElement, cardId, options = {}) {
   const sourceRect = options.sourceRect || sourceElement?.getBoundingClientRect();
   if (!sourceRect) return;
+  await ensureCardArtworkReady(cardId);
   const month = CARD_MAP.get(cardId)?.month;
   const matchingFields = [...els.field.querySelectorAll(".card")].filter((element) => Number(element.dataset.month) === month);
   const selectedMatch = options.fieldCardId ? els.field.querySelector(`[data-card-id="${options.fieldCardId}"]`) : null;
@@ -1390,6 +1427,7 @@ function createCardElement(id, options = {}) {
   element.dataset.type = card.type;
   element.dataset.key = card.key;
   element.innerHTML = `<span class="card-face"><img class="card-art" src="${card.asset}" alt="" draggable="false" /></span>${options.canCapture || options.takeable ? '<span class="capture-indicator" aria-hidden="true">取</span>' : ""}`;
+  element.querySelector(".card-face").style.backgroundImage = `url("${card.asset}")`;
   element.setAttribute("aria-label", `${card.month}月 ${card.monthName} ${typeLabel(card.type)}${options.canCapture || options.takeable ? "、取れる札" : ""}`);
   return element;
 }
@@ -2280,6 +2318,10 @@ async function waitForRemoteDrawToLand(nextState) {
 async function applyOnlineState(nextState) {
   clearTimeout(phaseTimer);
   await waitForRemoteDrawToLand(nextState);
+  const incomingDrawId = nextState.phase === "draw" || nextState.phase === "drawReady" || nextState.phase === "drawMoving"
+    ? nextState.pending?.drawnCard
+    : null;
+  if (incomingDrawId) await ensureCardArtworkReady(incomingDrawId);
   const previousState = state;
   mode = "online";
   const played = inferPlayedCard(previousState, nextState);
@@ -2404,5 +2446,6 @@ document.querySelector("#captureDialog").addEventListener("click", (event) => {
 document.querySelector("#backLobbyButton").addEventListener("click", returnToTitle);
 
 updateOnlineMatchSummary();
+warmCardArtworkCache();
 render();
 if (new URLSearchParams(window.location.search).has("demo")) startSolo();
