@@ -1726,6 +1726,10 @@ function renderDeck() {
     return;
   }
   const revealed = createCardElement(drawnId, { drawn: true });
+  const flipBack = document.createElement("span");
+  flipBack.className = "drawn-card-back";
+  flipBack.setAttribute("aria-hidden", "true");
+  revealed.append(flipBack);
   els.drawnCardPreview.append(revealed);
   const matches = state.pending?.matches || [];
   const instruction = state.phase === "drawReady" && state.pending?.actorSeat === localSeat()
