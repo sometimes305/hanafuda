@@ -631,7 +631,7 @@ button.card { cursor: pointer; }
   body { background: radial-gradient(circle, #2b2114, #050403 70%); }
 }
 
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce) and (min-width: 721px) and (hover: hover) and (pointer: fine) {
   .round-intro,
   .opening-card-stage.is-revealing .opening-card-back,
   .opening-card-face,
@@ -677,13 +677,6 @@ button.card { cursor: pointer; }
   .drawn-card-preview.revealing .drawn-card::after { animation-name: deckFlipBackReduced !important; animation-duration: 320ms !important; }
   .turn-banner.tap-prompt,
   .card-row.hand .card.selected { animation: none !important; }
-}
-
-@media (max-width: 720px), (hover: none), (pointer: coarse) {
-  .deck-pile.drawing { animation-duration: 5200ms !important; }
-  .drawn-card-preview.revealing .drawn-card,
-  .drawn-card-preview.revealing .card-face,
-  .drawn-card-preview.revealing .drawn-card::after { animation-duration: 4800ms !important; }
 }
 
 @keyframes deckFlipTiltReduced {

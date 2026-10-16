@@ -6,10 +6,6 @@ const CAPTURE_GROUPS = [["bright", "光"], ["animal", "たね"], ["ribbon", "短
 const DRAW_REVEAL_DURATION = 3600;
 const CAPTURE_FLIGHT_DURATION = 2200;
 const CAPTURE_FLIGHT_STAGGER = 170;
-const MOBILE_DRAW_REVEAL_DURATION = 5200;
-const MOBILE_CAPTURE_FLIGHT_DURATION = 3200;
-const MOBILE_CAPTURE_FLIGHT_STAGGER = 240;
-const MOBILE_CAPTURE_LAND_HOLD_DURATION = 760;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
 const PLAY_FLIGHT_DURATION = 1380;
 const DRAW_TO_FIELD_DURATION = 1440;
@@ -882,6 +878,7 @@ function aiTurn() {
 }
 
 function prefersReducedMotion() {
+  if (usesMobileMotionProfile()) return false;
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
@@ -890,22 +887,18 @@ function usesMobileMotionProfile() {
 }
 
 function drawRevealDuration() {
-  if (usesMobileMotionProfile()) return MOBILE_DRAW_REVEAL_DURATION;
   return prefersReducedMotion() ? REDUCED_DRAW_REVEAL_DURATION : DRAW_REVEAL_DURATION;
 }
 
 function captureFlightDuration() {
-  if (usesMobileMotionProfile()) return MOBILE_CAPTURE_FLIGHT_DURATION;
   return prefersReducedMotion() ? REDUCED_CAPTURE_FLIGHT_DURATION : CAPTURE_FLIGHT_DURATION;
 }
 
 function captureFlightStagger() {
-  if (usesMobileMotionProfile()) return MOBILE_CAPTURE_FLIGHT_STAGGER;
   return prefersReducedMotion() ? 30 : CAPTURE_FLIGHT_STAGGER;
 }
 
 function captureLandHoldDuration() {
-  if (usesMobileMotionProfile()) return MOBILE_CAPTURE_LAND_HOLD_DURATION;
   return prefersReducedMotion() ? REDUCED_CAPTURE_LAND_HOLD_DURATION : CAPTURE_LAND_HOLD_DURATION;
 }
 
