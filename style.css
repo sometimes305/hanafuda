@@ -193,7 +193,10 @@ input:focus, select:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 
 .round-marker span { color: var(--ivory-dim); font-size: 9px; }
 .round-marker #roundProgress { color: var(--gold); font-weight: 700; }
 .play-surface { min-height: calc(var(--card-h) * 2 + 12px); display: grid; grid-template-columns: auto var(--card-w); align-content: center; justify-content: center; gap: clamp(9px, 2.6vw, 14px); position: relative; }
-.field-grid { display: grid; grid-template-columns: repeat(4, var(--card-w)); grid-auto-rows: var(--card-h); align-content: center; gap: clamp(5px, 1.7vw, 9px); }
+.field-grid { --field-gap: clamp(4px, 1.15vw, 6px); display: grid; grid-template-columns: repeat(6, var(--card-w)); grid-template-rows: repeat(2, var(--card-h)); align-content: center; gap: var(--field-gap); }
+.field-slot { width: var(--card-w); height: var(--card-h); position: relative; isolation: isolate; overflow: visible; }
+.field-card-layer { position: absolute; inset: 0; transform: translate(var(--field-stack-offset, 0), var(--field-stack-offset, 0)); transform-origin: center; }
+.field-card-layer .card { width: 100%; height: 100%; }
 .deck-slot { width: var(--card-w); min-height: var(--card-h); align-self: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; position: relative; }
 .deck-pile { width: calc(var(--card-w) * .86); height: calc(var(--card-h) * .86); position: relative; z-index: 2; filter: drop-shadow(0 4px 4px #000b); transition: opacity 160ms ease, transform 160ms cubic-bezier(.25, 1, .5, 1); }
 .deck-pile::before, .deck-pile::after, .deck-card { content: ""; position: absolute; inset: 0; border: 1px solid #5a160f; border-radius: 3px; background: #8f0500 url("assets/cards/48.png") center / 100% 100%; }
@@ -202,7 +205,7 @@ input:focus, select:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 
 .deck-card { z-index: 1; }
 .deck-pile b { min-width: 22px; height: 22px; padding: 0 5px; position: absolute; right: -8px; bottom: -7px; z-index: 3; display: grid; place-items: center; border: 1px solid var(--gold); border-radius: 50%; background: #15110d; color: var(--gold-bright); font: 700 10px/1 "Noto Sans JP", sans-serif; }
 .deck-pile.empty { opacity: .25; filter: grayscale(1); }
-.deck-pile.drawing { animation: deckPulse 1450ms cubic-bezier(.16, 1, .3, 1); }
+.deck-pile.drawing { animation: deckPulse 2200ms cubic-bezier(.16, 1, .3, 1); }
 .deck-label { color: var(--ivory-dim); font-size: 8px; letter-spacing: .08em; }
 .deck-label.revealed { max-width: 90px; color: var(--gold-bright); font-weight: 700; text-align: center; white-space: nowrap; }
 .drawn-card-preview { width: var(--card-w); height: var(--card-h); position: absolute; left: 0; top: 50%; z-index: 6; transform: translate3d(0, -50%, 0) rotate(-1deg) scale(1.02); transform-origin: center; perspective: 520px; pointer-events: none; }
@@ -210,9 +213,9 @@ input:focus, select:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 
 .drawn-card-preview .card { width: 100%; height: 100%; background: transparent; box-shadow: 0 0 0 2px var(--gold-bright), 0 5px 8px #000b; -webkit-transform-style: preserve-3d; transform-style: preserve-3d; }
 .drawn-card-preview .card-face { -webkit-backface-visibility: hidden; backface-visibility: hidden; -webkit-transform: rotateY(0deg) translateZ(.2px); transform: rotateY(0deg) translateZ(.2px); transform-origin: 12% 50%; }
 .drawn-card-preview .drawn-card::after { content: ""; position: absolute; inset: 0; z-index: 3; border-radius: 3px; background: #8f0500 url("assets/cards/48.png") center / 100% 100%; -webkit-backface-visibility: hidden; backface-visibility: hidden; -webkit-transform: rotateY(90deg); transform: rotateY(90deg); transform-origin: 12% 50%; }
-.drawn-card-preview.revealing .drawn-card { animation: deckFlipTilt 1300ms cubic-bezier(.45, 0, .2, 1) both; }
-.drawn-card-preview.revealing .card-face { animation: deckFlipFront 1300ms cubic-bezier(.45, 0, .2, 1) both; }
-.drawn-card-preview.revealing .drawn-card::after { animation: deckFlipBack 1300ms cubic-bezier(.45, 0, .2, 1) both; }
+.drawn-card-preview.revealing .drawn-card { animation: deckFlipTilt 1950ms cubic-bezier(.45, 0, .2, 1) both; }
+.drawn-card-preview.revealing .card-face { animation: deckFlipFront 1950ms cubic-bezier(.45, 0, .2, 1) both; }
+.drawn-card-preview.revealing .drawn-card::after { animation: deckFlipBack 1950ms cubic-bezier(.45, 0, .2, 1) both; }
 .drawn-card-preview .card.committed { opacity: 0; }
 @keyframes deckPulse { 45% { transform: translateY(-3px) rotate(-1deg); filter: drop-shadow(0 7px 5px #000d) brightness(1.12); } }
 @keyframes deckFlipTilt {
@@ -514,6 +517,8 @@ button.card { cursor: pointer; }
   .captured-summary { display: none; }
   .captured-board-rail { gap: 2px; }
   .capture-pile-label { gap: 2px; }
+  .field-grid { --field-gap: 3px; }
+  .play-surface { gap: 6px; }
 }
 
 @media (min-width: 521px) {

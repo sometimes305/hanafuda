@@ -3,17 +3,19 @@ const MONTH_NAMES = ["一月", "二月", "三月", "四月", "五月", "六月",
 const MATCH_LENGTHS = [3, 6, 12];
 const MATCH_LENGTH_LABELS = { 3: "三局", 6: "六局", 12: "十二局" };
 const CAPTURE_GROUPS = [["bright", "光"], ["animal", "たね"], ["ribbon", "短冊"], ["chaff", "かす"]];
-const DRAW_REVEAL_DURATION = 1450;
-const CAPTURE_FLIGHT_DURATION = 980;
-const CAPTURE_FLIGHT_STAGGER = 80;
+const DRAW_REVEAL_DURATION = 2200;
+const CAPTURE_FLIGHT_DURATION = 1300;
+const CAPTURE_FLIGHT_STAGGER = 110;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
-const PLAY_FLIGHT_DURATION = 900;
-const DRAW_TO_FIELD_DURATION = 920;
-const MATCH_SLIDE_DURATION = 500;
-const PLAY_LAND_HOLD_DURATION = 320;
-const DRAW_TO_FIELD_HOLD_DURATION = 260;
-const MATCH_LAND_HOLD_DURATION = 220;
-const CAPTURE_LAND_HOLD_DURATION = 260;
+const FIELD_SLOT_COUNT = 12;
+const FIELD_SLOT_PRIORITY = [1, 2, 3, 4, 7, 8, 9, 10, 0, 5, 6, 11];
+const PLAY_FLIGHT_DURATION = 1150;
+const DRAW_TO_FIELD_DURATION = 1200;
+const MATCH_SLIDE_DURATION = 650;
+const PLAY_LAND_HOLD_DURATION = 400;
+const DRAW_TO_FIELD_HOLD_DURATION = 360;
+const MATCH_LAND_HOLD_DURATION = 300;
+const CAPTURE_LAND_HOLD_DURATION = 380;
 const REDUCED_DRAW_REVEAL_DURATION = 380;
 const REDUCED_PLAY_FLIGHT_DURATION = 260;
 const REDUCED_DRAW_TO_FIELD_DURATION = 280;
@@ -77,6 +79,7 @@ function createInitialState() {
     hands: [[], []],
     handCounts: [0, 0],
     field: [],
+    fieldMonthSlots: {},
     deck: [],
     captures: [[], []],
     phase: "lobby",
@@ -159,6 +162,8 @@ function dealRound() {
   } while (fieldHasFourOfMonth(field) && attempts < 50);
   state.hands = hands;
   state.field = field;
+  state.fieldMonthSlots = {};
+  ensureFieldMonthSlots();
   state.deck = deck;
   state.captures = [[], []];
   state.handCounts = [8, 8];
@@ -244,6 +249,31 @@ function visibleHand() {
 
 function cardSizedRect(centerX, centerY, width, height) {
   return { left: centerX - width / 2, top: centerY - height / 2, width, height };
+}
+
+function ensureFieldMonthSlots(fieldCards = state.field) {
+  if (!state.fieldMonthSlots || typeof state.fieldMonthSlots !== "object" || Array.isArray(state.fieldMonthSlots)) {
+    state.fieldMonthSlots = {};
+  }
+  const usedSlots = new Set(Object.values(state.fieldMonthSlots)
+    .map(Number)
+    .filter((slot) => Number.isInteger(slot) && slot >= 0 && slot < FIELD_SLOT_COUNT));
+  fieldCards.forEach((id) => {
+    const month = CARD_MAP.get(id)?.month;
+    const assignedSlot = Number(state.fieldMonthSlots[month]);
+    if (!month || (Number.isInteger(assignedSlot) && assignedSlot >= 0 && assignedSlot < FIELD_SLOT_COUNT)) return;
+    const availableSlot = FIELD_SLOT_PRIORITY.find((slot) => !usedSlots.has(slot));
+    if (availableSlot === undefined) return;
+    state.fieldMonthSlots[month] = availableSlot;
+    usedSlots.add(availableSlot);
+  });
+}
+
+function fieldSlotIndexForCard(cardId) {
+  ensureFieldMonthSlots([cardId]);
+  const month = CARD_MAP.get(cardId)?.month;
+  const slot = Number(state.fieldMonthSlots?.[month]);
+  return Number.isInteger(slot) && slot >= 0 && slot < FIELD_SLOT_COUNT ? slot : 0;
 }
 
 function snapshotCardRects(elements, keyFor) {
@@ -762,7 +792,7 @@ async function animateDrawnCardToField(cardId, fieldCardId = null, options = {})
   const landingMatches = selectedMatch ? [selectedMatch] : allMatches;
   const fallbackRect = els.field.getBoundingClientRect();
   const matchingLanding = matchingFieldLandingPoint(landingMatches);
-  const placement = allMatches.length ? null : nextFieldPlacementPoint();
+  const placement = allMatches.length ? null : nextFieldPlacementPoint(cardId);
   const targetX = matchingLanding?.x ?? placement?.x ?? fallbackRect.left + fallbackRect.width / 2;
   const targetY = matchingLanding?.y ?? placement?.y ?? fallbackRect.top + fallbackRect.height / 2;
   const targetRect = cardSizedRect(targetX, targetY, sourceRect.width, sourceRect.height);
@@ -822,7 +852,7 @@ async function animatePlayedCard(sourceElement, cardId, options = {}) {
   const matchingFields = [...els.field.querySelectorAll(".card")].filter((element) => Number(element.dataset.month) === month);
   const fallbackRect = els.field.getBoundingClientRect();
   const matchingLanding = matchingFieldLandingPoint(matchingFields);
-  const placement = matchingFields.length ? null : nextFieldPlacementPoint();
+  const placement = matchingFields.length ? null : nextFieldPlacementPoint(cardId);
   const targetX = matchingLanding?.x ?? placement?.x ?? fallbackRect.left + fallbackRect.width / 2;
   const targetY = matchingLanding?.y ?? placement?.y ?? fallbackRect.top + fallbackRect.height / 2;
   const fieldCardRect = matchingFields[0]?.getBoundingClientRect() || els.field.querySelector(".card")?.getBoundingClientRect();
@@ -1414,24 +1444,11 @@ function bindCaptureArea(selector, seatResolver) {
   });
 }
 
-function nextFieldPlacementPoint() {
-  const fieldRect = els.field.getBoundingClientRect();
-  const surfaceRect = document.querySelector(".play-surface")?.getBoundingClientRect();
-  const reference = els.field.querySelector(".card")?.getBoundingClientRect();
-  if (!surfaceRect || !reference) return null;
-  const styles = getComputedStyle(els.field);
-  const columnGap = Number.parseFloat(styles.columnGap) || 0;
-  const rowGap = Number.parseFloat(styles.rowGap) || columnGap;
-  const index = state.field.length;
-  const column = index % 4;
-  const row = Math.floor(index / 4);
-  const rowCount = Math.ceil((index + 1) / 4);
-  const finalHeight = rowCount * reference.height + Math.max(0, rowCount - 1) * rowGap;
-  const top = surfaceRect.top + (surfaceRect.height - finalHeight) / 2;
-  return {
-    x: fieldRect.left + column * (reference.width + columnGap) + reference.width / 2,
-    y: top + row * (reference.height + rowGap) + reference.height / 2
-  };
+function nextFieldPlacementPoint(cardId) {
+  const slot = els.field.querySelector(`[data-field-slot="${fieldSlotIndexForCard(cardId)}"]`);
+  const rect = slot?.getBoundingClientRect();
+  if (!rect?.width || !rect?.height) return null;
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 }
 
 function drawReadyPrompt(matchCount) {
@@ -1478,6 +1495,7 @@ function render() {
   renderProfile();
   renderRoomStartState();
   if (!active) return;
+  ensureFieldMonthSlots();
 
   const self = localSeat();
   const opponent = 1 - self;
@@ -1509,16 +1527,41 @@ function render() {
   if (!canPlay || !localHand.includes(selectedHandCardId)) selectedHandCardId = null;
   const playableMonths = new Set(canPlay ? localHand.map((id) => CARD_MAP.get(id)?.month) : []);
   els.field.replaceChildren();
+  const fieldSlots = Array.from({ length: FIELD_SLOT_COUNT }, (_unused, slotIndex) => {
+    const slot = document.createElement("div");
+    slot.className = "field-slot";
+    slot.dataset.fieldSlot = String(slotIndex);
+    slot.setAttribute("role", "presentation");
+    els.field.append(slot);
+    return slot;
+  });
+  const fieldCardsByMonth = new Map();
   state.field.forEach((id) => {
+    const month = CARD_MAP.get(id)?.month;
+    if (!fieldCardsByMonth.has(month)) fieldCardsByMonth.set(month, []);
+    fieldCardsByMonth.get(month).push(id);
+  });
+  state.field.forEach((id) => {
+    const month = CARD_MAP.get(id)?.month;
+    const monthCards = fieldCardsByMonth.get(month) || [id];
+    const stackIndex = monthCards.indexOf(id);
+    const centeredStackIndex = stackIndex - (monthCards.length - 1) / 2;
+    const layer = document.createElement("div");
+    layer.className = "field-card-layer";
+    layer.style.setProperty("--field-stack-offset", `${centeredStackIndex * FIELD_OVERLAP_OFFSET_RATIO * 100}%`);
+    layer.style.zIndex = String(stackIndex + 1);
     const handMatchable = state.phase === "select" && state.pending?.matches?.includes(id) && state.pending.actorSeat === self;
     const drawMatchable = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.length === 2 && state.pending.matches.includes(id);
     const drawTarget = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.includes(id);
     const matchable = handMatchable || drawMatchable;
     const takeable = (canPlay && playableMonths.has(CARD_MAP.get(id)?.month)) || drawTarget;
     const element = createCardElement(id, { button: matchable, matchable, takeable });
+    const fieldSlotIndex = fieldSlotIndexForCard(id);
+    element.dataset.fieldSlot = String(fieldSlotIndex);
     if (handMatchable) element.addEventListener("click", () => handleMatchClick(id, element));
     else if (drawMatchable) element.addEventListener("click", () => handleDrawConfirm(id));
-    els.field.append(element);
+    layer.append(element);
+    fieldSlots[fieldSlotIndex].append(layer);
   });
   animateCardReflow(els.field.querySelectorAll(".card"), previousFieldRects, (element) => element.dataset.cardId);
 
@@ -1770,6 +1813,7 @@ function renderRoomStartState() {
 }
 
 function persistAndRender() {
+  ensureFieldMonthSlots();
   state.handCounts = [state.hands[0]?.length || state.handCounts[0] || 0, state.hands[1]?.length || state.handCounts[1] || 0];
   if (!applyingRemoteState && (mode === "solo" || window.TierOnline?.host)) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode, state }));
@@ -1860,6 +1904,9 @@ async function applyOnlineState(nextState) {
   await waitForRemoteDrawToLand(nextState);
   const previousState = state;
   mode = "online";
+  if (nextState.fieldMonthSlots && typeof nextState.fieldMonthSlots === "object" && !Array.isArray(nextState.fieldMonthSlots)) {
+    state.fieldMonthSlots = { ...(state.fieldMonthSlots || {}), ...nextState.fieldMonthSlots };
+  }
   const played = inferPlayedCard(previousState, nextState);
   if (played && !motionOrigins.has(played.cardId)) {
     await animatePlayedCardForSeat(played.cardId, played.actorSeat);
@@ -1878,6 +1925,7 @@ async function applyOnlineState(nextState) {
   applyingRemoteState = true;
   state = { ...createInitialState(), ...nextState, hands: nextState.hands || [[], []] };
   state.matchLength = normalizeMatchLength(state.matchLength);
+  ensureFieldMonthSlots();
   render();
   state.field.forEach((id) => motionOrigins.delete(id));
   drawFlightClones.forEach((_element, id) => {
