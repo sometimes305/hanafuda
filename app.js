@@ -742,7 +742,7 @@ function flushQueuedInput() {
     queuedInput = null;
     if (intent.type !== "match" || !state.pending.matches?.includes(intent.cardId)) return;
     const target = els.field.querySelector(`[data-card-id="${intent.cardId}"]`);
-    if (target) handleMatchClick(intent.cardId, target);
+    if (target) handleMatchClick(intent.cardId, target, { preAnimated: Boolean(intent.prePositioned) });
     return;
   }
   if (state.phase === "drawReady" && state.pending?.actorSeat === localSeat()) {
@@ -844,12 +844,14 @@ async function animatePlayedCard(sourceElement, cardId, options = {}) {
   if (!sourceRect) return;
   const month = CARD_MAP.get(cardId)?.month;
   const matchingFields = [...els.field.querySelectorAll(".card")].filter((element) => Number(element.dataset.month) === month);
+  const selectedMatch = options.fieldCardId ? els.field.querySelector(`[data-card-id="${options.fieldCardId}"]`) : null;
+  const landingMatches = selectedMatch ? [selectedMatch] : matchingFields;
   const fallbackRect = els.field.getBoundingClientRect();
-  const matchingLanding = matchingFieldLandingPoint(matchingFields);
+  const matchingLanding = matchingFieldLandingPoint(landingMatches);
   const placement = matchingFields.length ? null : nextFieldPlacementPoint();
   const targetX = matchingLanding?.x ?? placement?.x ?? fallbackRect.left + fallbackRect.width / 2;
   const targetY = matchingLanding?.y ?? placement?.y ?? fallbackRect.top + fallbackRect.height / 2;
-  const fieldCardRect = matchingFields[0]?.getBoundingClientRect() || els.field.querySelector(".card")?.getBoundingClientRect();
+  const fieldCardRect = selectedMatch?.getBoundingClientRect() || matchingFields[0]?.getBoundingClientRect() || els.field.querySelector(".card")?.getBoundingClientRect();
   const targetWidth = fieldCardRect?.width || sourceRect.width;
   const targetHeight = fieldCardRect?.height || sourceRect.height;
   const landingScale = Math.min(targetWidth / sourceRect.width, targetHeight / sourceRect.height);
@@ -1003,7 +1005,7 @@ async function animatePendingCardToMatch(cardId, fieldCardId) {
   await waitForMotion(reducedMotion ? REDUCED_MATCH_LAND_HOLD_DURATION : MATCH_LAND_HOLD_DURATION);
 }
 
-async function handleHandClick(cardId, sourceElement) {
+async function handleHandClick(cardId, sourceElement, options = {}) {
   if (!isLocalTurn() || interactionLocked) return;
   if (requiresTapConfirmation() && selectedHandCardId !== cardId) {
     updateHandSelection(cardId);
@@ -1014,7 +1016,7 @@ async function handleHandClick(cardId, sourceElement) {
   interactionLocked = true;
   const sendsOnline = Boolean(window.TierOnline?.shouldSendAction());
   previewCaptureFor(cardId, true);
-  await animatePlayedCard(sourceElement, cardId, { keepSourceCommitted: sendsOnline });
+  await animatePlayedCard(sourceElement, cardId, { keepSourceCommitted: sendsOnline, fieldCardId: options.fieldCardId });
   clearCapturePreview();
   if (sendsOnline) {
     window.TierOnline.sendAction({ type: "play", cardId, playerName: localPlayerName });
@@ -1023,16 +1025,28 @@ async function handleHandClick(cardId, sourceElement) {
   if (!sendsOnline) scheduleInteractionUnlock(160);
 }
 
-async function handleMatchClick(cardId, sourceElement) {
+async function handleMatchClick(cardId, sourceElement, options = {}) {
   if (state.phase !== "select" || state.pending?.actorSeat !== localSeat() || interactionLocked) return;
   interactionLocked = true;
   const sendsOnline = Boolean(window.TierOnline?.shouldSendAction());
-  await animatePendingCardToMatch(state.pending.cardId, cardId);
+  if (!options.preAnimated) await animatePendingCardToMatch(state.pending.cardId, cardId);
   if (sendsOnline) {
     window.TierOnline.sendAction({ type: "match", cardId, playerName: localPlayerName });
     scheduleInteractionUnlock(6000);
   } else await chooseMatch(cardId, localSeat(), { preAnimated: true });
   if (!sendsOnline) scheduleInteractionUnlock(130);
+}
+
+async function handleSelectedFieldTap(fieldCardId) {
+  if (!isLocalTurn() || interactionLocked || !selectedHandCardId) return;
+  const cardId = selectedHandCardId;
+  const month = CARD_MAP.get(cardId)?.month;
+  const matches = state.field.filter((id) => CARD_MAP.get(id)?.month === month);
+  if (!matches.includes(fieldCardId)) return;
+  const sourceElement = els.hand.querySelector(`[data-card-id="${cardId}"]`);
+  if (!sourceElement) return;
+  if (matches.length === 2) queueNextInput({ type: "match", cardId: fieldCardId, prePositioned: true });
+  await handleHandClick(cardId, sourceElement, { fieldCardId });
 }
 
 async function handleDrawConfirm(fieldCardId = null) {
@@ -1064,6 +1078,13 @@ function handleGameTap(event) {
   if (handCard && interactionLocked && handCard.dataset.cardId !== activeOutgoingCardId) {
     queueNextInput({ type: "hand", cardId: handCard.dataset.cardId });
     return;
+  }
+  if (state.phase === "play" && !interactionLocked && selectedHandCardId && fieldCard) {
+    const selectedMonth = CARD_MAP.get(selectedHandCardId)?.month;
+    if (CARD_MAP.get(fieldCard.dataset.cardId)?.month === selectedMonth) {
+      void handleSelectedFieldTap(fieldCard.dataset.cardId);
+      return;
+    }
   }
   if (state.phase === "draw") {
     const drawnCard = state.pending?.drawnCard;
@@ -1502,7 +1523,6 @@ function render() {
   document.querySelector("#opponentName").textContent = state.players[opponent] || "相手";
   renderAvatar(document.querySelector("#selfAvatar"), state.players[self] || "あなた", state.playerIcons?.[self]);
   renderAvatar(document.querySelector("#opponentAvatar"), state.players[opponent] || "相手", state.playerIcons?.[opponent]);
-  document.querySelector("#selfCaptured").textContent = `取札 ${(state.captures[self] || []).length}枚`;
   document.querySelector("#opponentCaptured").textContent = `取札 ${(state.captures[opponent] || []).length}枚`;
   document.querySelector("#topScore").textContent = state.scores[opponent] || 0;
   document.querySelector("#bottomScore").textContent = state.scores[self] || 0;
@@ -1525,7 +1545,7 @@ function render() {
   els.field.replaceChildren();
   state.field.forEach((id) => {
     const handMatchable = state.phase === "select" && state.pending?.matches?.includes(id) && state.pending.actorSeat === self;
-    const drawMatchable = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.length === 2 && state.pending.matches.includes(id);
+    const drawMatchable = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.includes(id);
     const drawTarget = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.includes(id);
     const matchable = handMatchable || drawMatchable;
     const takeable = (canPlay && playableMonths.has(CARD_MAP.get(id)?.month)) || drawTarget;
@@ -1574,7 +1594,6 @@ function renderCapturedSummary(seat) {
   const progress = getYakuProgress(ids);
   const reaches = progress.filter((item) => item.status === "reach");
 
-  document.querySelector("#captureTotal").textContent = ids.length;
   renderCapturedRail(document.querySelector("#capturedBoardRail"), ids);
   renderCapturedRail(document.querySelector("#opponentCapturedRail"), opponentIds);
   const openDialog = document.querySelector("#captureDialog");
@@ -1615,7 +1634,12 @@ function renderTurnBanner(self) {
   else if (state.phase === "decisionReveal") text = state.pending?.choice === "koi" ? "こいこい" : "上がり";
   else if (state.phase === "roundEnd") text = "この局は終了";
   else if (state.phase === "matchEnd") text = "対局終了";
-  else text = state.currentPlayer === self ? (selectedHandCardId ? "もう一度タップして札を出す" : "あなたの番") : `${state.players[state.currentPlayer]}の番`;
+  else if (state.currentPlayer === self && selectedHandCardId) {
+    const month = CARD_MAP.get(selectedHandCardId)?.month;
+    const hasMatch = state.field.some((id) => CARD_MAP.get(id)?.month === month);
+    text = hasMatch ? "取る場札か、同じ手札をタップ" : "もう一度タップして札を出す";
+  }
+  else text = state.currentPlayer === self ? "あなたの番" : `${state.players[state.currentPlayer]}の番`;
   els.turnBanner.textContent = text;
   const interactive = (state.phase === "play" && state.currentPlayer === self)
     || (state.phase === "select" && state.pending?.actorSeat === self)
@@ -1700,7 +1724,7 @@ function renderChoice(self) {
     const caption = continued ? "勝負を続けます" : "この局を締めます";
     const panel = document.createElement("div");
     panel.className = `cut-in-panel cut-in-decision decision-${continued ? "koi" : "agari"}`;
-    panel.innerHTML = `<p class="cut-in-player">${escapeHtml(actorName)}</p><p class="result-kicker">選択</p><h2 id="choiceHeading">${heading}</h2><p class="cut-in-caption">${caption}</p>${continued ? "" : `<div id="choiceScore" class="choice-score decision-score">${state.pending.awardedPoints}<small>文</small></div>`}`;
+    panel.innerHTML = `<p class="cut-in-player">${escapeHtml(actorName)}</p><h2 id="choiceHeading">${heading}</h2><p class="cut-in-caption">${caption}</p>${continued ? "" : `<div id="choiceScore" class="choice-score decision-score">${state.pending.awardedPoints}<small>文</small></div>`}`;
     els.choice.append(panel);
     els.choice.dataset.scene = continued ? "decision-koi" : "decision-agari";
     els.choice.classList.add("cut-in-overlay", "decision-overlay");

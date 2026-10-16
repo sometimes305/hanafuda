@@ -392,8 +392,9 @@ button.card { cursor: pointer; }
 .cut-in-yaku .yaku-title { grid-area: title; max-width: none; margin: 0 !important; font-size: 30px !important; }
 .cut-in-yaku .yaku-title.many { font-size: 24px !important; }
 .cut-in-yaku .yaku-score { grid-area: score; }
-.cut-in-decision { min-height: 0; display: flex; flex-direction: row; justify-content: center; gap: 13px; animation-duration: 2700ms; }
-.cut-in-decision h2 { margin: 0; color: var(--gold-bright); font: 700 38px/1.12 "Kaisei Decol", serif; letter-spacing: .12em; text-indent: .12em; text-shadow: 0 2px #000; }
+.cut-in-decision { min-height: 0; display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; gap: clamp(7px, 2.5vw, 13px); padding-inline: 12px; animation-duration: 2700ms; }
+.cut-in-decision .cut-in-player { max-width: 64px; overflow: hidden; flex: 0 1 64px; text-overflow: ellipsis; }
+.cut-in-decision h2 { margin: 0; flex: 0 0 auto; color: var(--gold-bright); font: 700 clamp(30px, 9vw, 38px)/1.12 "Kaisei Decol", serif; letter-spacing: .12em; text-indent: .12em; text-shadow: 0 2px #000; white-space: nowrap; word-break: keep-all; overflow-wrap: normal; }
 .cut-in-caption { margin: 0; color: var(--ivory-dim); font-size: 11px; letter-spacing: .08em; white-space: nowrap; }
 .decision-agari { background: linear-gradient(90deg, #080604, #421711 25%, #210d09 50%, #421711 75%, #080604); }
 .decision-agari h2 { color: #f5e6c8; }

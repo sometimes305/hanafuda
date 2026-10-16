@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0d0b08" />
     <title>花札 こいこい</title>
-    <link rel="stylesheet" href="style.css?v=26" />
+    <link rel="stylesheet" href="style.css?v=27" />
     <script src="https://cdn.gravity.place/fe/sdk/index-1.0.2.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
   </head>
@@ -116,13 +116,13 @@
         <section class="player-zone" aria-label="自分の手札">
           <div class="board-captures board-captures-self" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="captureDialog" aria-label="自分の取札と役の進み。タップしてすべて表示">
             <div class="board-captures-head">
-              <span class="board-captures-owner">自分の取札 <b id="captureTotal">0</b></span>
+              <span class="board-captures-owner">自分の取札</span>
             </div>
             <div class="captured-board-rail" id="capturedBoardRail"></div>
             <div class="capture-yaku-strip" id="captureYakuStrip" aria-live="polite">札を取ると役の進みを表示</div>
           </div>
           <div class="card-row hand" id="playerHand"></div>
-          <div class="self-meta"><span id="selfAvatar" class="mini-avatar self-avatar">自</span><span id="selfName">あなた</span><small id="selfCaptured">取札 0枚</small></div>
+          <div class="self-meta"><span id="selfAvatar" class="mini-avatar self-avatar">自</span><span id="selfName">あなた</span></div>
         </section>
 
         <div id="choiceOverlay" class="choice-overlay hidden" aria-live="polite"></div>
@@ -173,7 +173,7 @@
     </dialog>
 
     <script src="cards.js?v=3"></script>
-    <script src="app.js?v=28"></script>
+    <script src="app.js?v=29"></script>
     <script src="online.js?v=4"></script>
   </body>
 </html>
