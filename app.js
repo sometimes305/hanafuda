@@ -7,8 +7,6 @@ const DRAW_REVEAL_DURATION = 2200;
 const CAPTURE_FLIGHT_DURATION = 1300;
 const CAPTURE_FLIGHT_STAGGER = 110;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
-const FIELD_SLOT_COUNT = 12;
-const FIELD_SLOT_PRIORITY = [1, 2, 3, 4, 7, 8, 9, 10, 0, 5, 6, 11];
 const PLAY_FLIGHT_DURATION = 1150;
 const DRAW_TO_FIELD_DURATION = 1200;
 const MATCH_SLIDE_DURATION = 650;
@@ -79,7 +77,6 @@ function createInitialState() {
     hands: [[], []],
     handCounts: [0, 0],
     field: [],
-    fieldMonthSlots: {},
     deck: [],
     captures: [[], []],
     phase: "lobby",
@@ -162,8 +159,6 @@ function dealRound() {
   } while (fieldHasFourOfMonth(field) && attempts < 50);
   state.hands = hands;
   state.field = field;
-  state.fieldMonthSlots = {};
-  ensureFieldMonthSlots();
   state.deck = deck;
   state.captures = [[], []];
   state.handCounts = [8, 8];
@@ -249,31 +244,6 @@ function visibleHand() {
 
 function cardSizedRect(centerX, centerY, width, height) {
   return { left: centerX - width / 2, top: centerY - height / 2, width, height };
-}
-
-function ensureFieldMonthSlots(fieldCards = state.field) {
-  if (!state.fieldMonthSlots || typeof state.fieldMonthSlots !== "object" || Array.isArray(state.fieldMonthSlots)) {
-    state.fieldMonthSlots = {};
-  }
-  const usedSlots = new Set(Object.values(state.fieldMonthSlots)
-    .map(Number)
-    .filter((slot) => Number.isInteger(slot) && slot >= 0 && slot < FIELD_SLOT_COUNT));
-  fieldCards.forEach((id) => {
-    const month = CARD_MAP.get(id)?.month;
-    const assignedSlot = Number(state.fieldMonthSlots[month]);
-    if (!month || (Number.isInteger(assignedSlot) && assignedSlot >= 0 && assignedSlot < FIELD_SLOT_COUNT)) return;
-    const availableSlot = FIELD_SLOT_PRIORITY.find((slot) => !usedSlots.has(slot));
-    if (availableSlot === undefined) return;
-    state.fieldMonthSlots[month] = availableSlot;
-    usedSlots.add(availableSlot);
-  });
-}
-
-function fieldSlotIndexForCard(cardId) {
-  ensureFieldMonthSlots([cardId]);
-  const month = CARD_MAP.get(cardId)?.month;
-  const slot = Number(state.fieldMonthSlots?.[month]);
-  return Number.isInteger(slot) && slot >= 0 && slot < FIELD_SLOT_COUNT ? slot : 0;
 }
 
 function snapshotCardRects(elements, keyFor) {
@@ -643,6 +613,30 @@ function rematch() {
   dealRound();
 }
 
+function returnToTitle() {
+  const menuDialog = document.querySelector("#menuDialog");
+  if (menuDialog?.open) menuDialog.close();
+  if (window.TierOnline?.online) window.TierOnline.exitRoom();
+  clearTimeout(aiTimer);
+  clearTimeout(drawTimer);
+  clearTimeout(phaseTimer);
+  clearTimeout(interactionUnlockTimer);
+  interactionUnlockTimer = null;
+  interactionLocked = false;
+  selectedHandCardId = null;
+  queuedInput = null;
+  activeOutgoingCardId = null;
+  motionOrigins.clear();
+  captureFlightIds.clear();
+  drawFlightClones.forEach((element) => element.remove());
+  drawFlightClones.clear();
+  mode = "lobby";
+  viewerSeat = 0;
+  clientSecret = null;
+  state = createInitialState();
+  render();
+}
+
 function evaluateYaku(ids) {
   const cards = ids.map((id) => CARD_MAP.get(id)).filter(Boolean);
   const has = (key) => cards.some((card) => card.key === key);
@@ -792,7 +786,7 @@ async function animateDrawnCardToField(cardId, fieldCardId = null, options = {})
   const landingMatches = selectedMatch ? [selectedMatch] : allMatches;
   const fallbackRect = els.field.getBoundingClientRect();
   const matchingLanding = matchingFieldLandingPoint(landingMatches);
-  const placement = allMatches.length ? null : nextFieldPlacementPoint(cardId);
+  const placement = allMatches.length ? null : nextFieldPlacementPoint();
   const targetX = matchingLanding?.x ?? placement?.x ?? fallbackRect.left + fallbackRect.width / 2;
   const targetY = matchingLanding?.y ?? placement?.y ?? fallbackRect.top + fallbackRect.height / 2;
   const targetRect = cardSizedRect(targetX, targetY, sourceRect.width, sourceRect.height);
@@ -852,7 +846,7 @@ async function animatePlayedCard(sourceElement, cardId, options = {}) {
   const matchingFields = [...els.field.querySelectorAll(".card")].filter((element) => Number(element.dataset.month) === month);
   const fallbackRect = els.field.getBoundingClientRect();
   const matchingLanding = matchingFieldLandingPoint(matchingFields);
-  const placement = matchingFields.length ? null : nextFieldPlacementPoint(cardId);
+  const placement = matchingFields.length ? null : nextFieldPlacementPoint();
   const targetX = matchingLanding?.x ?? placement?.x ?? fallbackRect.left + fallbackRect.width / 2;
   const targetY = matchingLanding?.y ?? placement?.y ?? fallbackRect.top + fallbackRect.height / 2;
   const fieldCardRect = matchingFields[0]?.getBoundingClientRect() || els.field.querySelector(".card")?.getBoundingClientRect();
@@ -1437,11 +1431,24 @@ function bindCaptureArea(selector, seatResolver) {
   });
 }
 
-function nextFieldPlacementPoint(cardId) {
-  const slot = els.field.querySelector(`[data-field-slot="${fieldSlotIndexForCard(cardId)}"]`);
-  const rect = slot?.getBoundingClientRect();
-  if (!rect?.width || !rect?.height) return null;
-  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+function nextFieldPlacementPoint() {
+  const fieldRect = els.field.getBoundingClientRect();
+  const surfaceRect = document.querySelector(".play-surface")?.getBoundingClientRect();
+  const reference = els.field.querySelector(".card")?.getBoundingClientRect();
+  if (!surfaceRect || !reference) return null;
+  const styles = getComputedStyle(els.field);
+  const columnGap = Number.parseFloat(styles.columnGap) || 0;
+  const rowGap = Number.parseFloat(styles.rowGap) || columnGap;
+  const index = state.field.length;
+  const column = index % 4;
+  const row = Math.floor(index / 4);
+  const rowCount = Math.ceil((index + 1) / 4);
+  const finalHeight = rowCount * reference.height + Math.max(0, rowCount - 1) * rowGap;
+  const top = surfaceRect.top + (surfaceRect.height - finalHeight) / 2;
+  return {
+    x: fieldRect.left + column * (reference.width + columnGap) + reference.width / 2,
+    y: top + row * (reference.height + rowGap) + reference.height / 2
+  };
 }
 
 function drawReadyPrompt(matchCount) {
@@ -1487,8 +1494,6 @@ function render() {
   renderProfile();
   renderRoomStartState();
   if (!active) return;
-  ensureFieldMonthSlots();
-
   const self = localSeat();
   const opponent = 1 - self;
   document.querySelector("#monthLabel").textContent = MONTH_NAMES[Math.max(0, state.round - 1)] || `${state.round}局`;
@@ -1518,41 +1523,16 @@ function render() {
   if (!canPlay || !localHand.includes(selectedHandCardId)) selectedHandCardId = null;
   const playableMonths = new Set(canPlay ? localHand.map((id) => CARD_MAP.get(id)?.month) : []);
   els.field.replaceChildren();
-  const fieldSlots = Array.from({ length: FIELD_SLOT_COUNT }, (_unused, slotIndex) => {
-    const slot = document.createElement("div");
-    slot.className = "field-slot";
-    slot.dataset.fieldSlot = String(slotIndex);
-    slot.setAttribute("role", "presentation");
-    els.field.append(slot);
-    return slot;
-  });
-  const fieldCardsByMonth = new Map();
   state.field.forEach((id) => {
-    const month = CARD_MAP.get(id)?.month;
-    if (!fieldCardsByMonth.has(month)) fieldCardsByMonth.set(month, []);
-    fieldCardsByMonth.get(month).push(id);
-  });
-  state.field.forEach((id) => {
-    const month = CARD_MAP.get(id)?.month;
-    const monthCards = fieldCardsByMonth.get(month) || [id];
-    const stackIndex = monthCards.indexOf(id);
-    const centeredStackIndex = stackIndex - (monthCards.length - 1) / 2;
-    const layer = document.createElement("div");
-    layer.className = "field-card-layer";
-    layer.style.setProperty("--field-stack-offset", `${centeredStackIndex * FIELD_OVERLAP_OFFSET_RATIO * 100}%`);
-    layer.style.zIndex = String(stackIndex + 1);
     const handMatchable = state.phase === "select" && state.pending?.matches?.includes(id) && state.pending.actorSeat === self;
     const drawMatchable = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.length === 2 && state.pending.matches.includes(id);
     const drawTarget = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.includes(id);
     const matchable = handMatchable || drawMatchable;
     const takeable = (canPlay && playableMonths.has(CARD_MAP.get(id)?.month)) || drawTarget;
     const element = createCardElement(id, { button: matchable, matchable, takeable });
-    const fieldSlotIndex = fieldSlotIndexForCard(id);
-    element.dataset.fieldSlot = String(fieldSlotIndex);
     if (handMatchable) element.addEventListener("click", () => handleMatchClick(id, element));
     else if (drawMatchable) element.addEventListener("click", () => handleDrawConfirm(id));
-    layer.append(element);
-    fieldSlots[fieldSlotIndex].append(layer);
+    els.field.append(element);
   });
   animateCardReflow(els.field.querySelectorAll(".card"), previousFieldRects, (element) => element.dataset.cardId);
 
@@ -1680,14 +1660,16 @@ function renderChoice(self) {
   els.choice.removeAttribute("data-scene");
   els.choice.removeAttribute("aria-labelledby");
   els.choice.removeAttribute("aria-describedby");
-  els.choice.classList.remove("cut-in-overlay", "decision-overlay");
+  els.choice.removeAttribute("aria-modal");
+  els.choice.setAttribute("role", "status");
+  els.choice.classList.remove("cut-in-overlay", "decision-overlay", "koi-overlay");
   if (state.phase === "yakuReveal" && state.pending) {
     const actorSeat = state.pending.actorSeat;
     const actorName = state.players[actorSeat] || "プレイヤー";
     const yakuNames = yakuNamesFrom(state.pending.yaku);
     const panel = document.createElement("div");
     panel.className = "cut-in-panel cut-in-yaku";
-    panel.innerHTML = `${resultAtmosphereMarkup("yaku")}<p class="cut-in-player">${escapeHtml(actorName)}</p><p class="result-kicker">役成立</p><h2 id="choiceHeading" class="yaku-title${yakuNames.length > 2 ? " many" : ""}" aria-label="${escapeHtml(yakuNames.join("、"))}">${yakuTitleMarkup(state.pending.yaku)}</h2><div id="choiceScore" class="choice-score yaku-score"><strong>${state.pending.potentialPoints || state.pending.points}</strong><small>文</small></div>`;
+    panel.innerHTML = `<p class="cut-in-player">${escapeHtml(actorName)}</p><p class="result-kicker">役成立</p><h2 id="choiceHeading" class="yaku-title${yakuNames.length > 2 ? " many" : ""}" aria-label="${escapeHtml(yakuNames.join("、"))}">${yakuTitleMarkup(state.pending.yaku)}</h2><div id="choiceScore" class="choice-score yaku-score"><strong>${state.pending.potentialPoints || state.pending.points}</strong><small>文</small></div>`;
     els.choice.append(panel);
     els.choice.dataset.scene = "yaku-reveal";
     els.choice.classList.add("cut-in-overlay");
@@ -1700,11 +1682,14 @@ function renderChoice(self) {
     const yakuNames = yakuNamesFrom(state.pending.yaku);
     const panel = document.createElement("div");
     panel.className = "choice-panel choice-panel-koi";
-    panel.innerHTML = `<div class="result-seal choice-seal" aria-hidden="true">決</div><p class="result-kicker">${escapeHtml(state.players[self] || "あなた")}の選択</p><h2 id="choiceHeading">勝負を続けますか</h2><div class="choice-yaku choice-yaku-reminder"><span>${escapeHtml(yakuNames.join("・"))}</span><b>${state.pending.potentialPoints || state.pending.points}文</b></div><div class="choice-buttons"><button class="button" data-koi="koi">こいこい</button><button class="button primary" data-koi="agari">上がり</button></div>`;
+    panel.innerHTML = `<h2 id="choiceHeading">こいこいしますか</h2><div id="choiceContext" class="choice-yaku choice-yaku-reminder"><span>${escapeHtml(yakuNames.join("・"))}</span><b>${state.pending.potentialPoints || state.pending.points}文</b></div><div class="choice-buttons"><button class="button" data-koi="koi">こいこい</button><button class="button primary" data-koi="agari">上がり</button></div>`;
     panel.querySelectorAll("[data-koi]").forEach((button) => button.addEventListener("click", () => handleKoi(button.dataset.koi)));
     els.choice.append(panel);
     els.choice.dataset.scene = "koi-choice";
+    els.choice.classList.add("koi-overlay");
+    els.choice.setAttribute("role", "dialog");
     els.choice.setAttribute("aria-labelledby", "choiceHeading");
+    els.choice.setAttribute("aria-describedby", "choiceContext");
     els.choice.classList.remove("hidden");
     return;
   }
@@ -1715,7 +1700,7 @@ function renderChoice(self) {
     const caption = continued ? "勝負を続けます" : "この局を締めます";
     const panel = document.createElement("div");
     panel.className = `cut-in-panel cut-in-decision decision-${continued ? "koi" : "agari"}`;
-    panel.innerHTML = `${resultAtmosphereMarkup(continued ? "koi" : "agari")}<p class="cut-in-player">${escapeHtml(actorName)}</p><p class="result-kicker">選択</p><h2 id="choiceHeading">${heading}</h2><p class="cut-in-caption">${caption}</p>${continued ? "" : `<div id="choiceScore" class="choice-score decision-score">${state.pending.awardedPoints}<small>文</small></div>`}`;
+    panel.innerHTML = `<p class="cut-in-player">${escapeHtml(actorName)}</p><p class="result-kicker">選択</p><h2 id="choiceHeading">${heading}</h2><p class="cut-in-caption">${caption}</p>${continued ? "" : `<div id="choiceScore" class="choice-score decision-score">${state.pending.awardedPoints}<small>文</small></div>`}`;
     els.choice.append(panel);
     els.choice.dataset.scene = continued ? "decision-koi" : "decision-agari";
     els.choice.classList.add("cut-in-overlay", "decision-overlay");
@@ -1743,14 +1728,19 @@ function renderChoice(self) {
     const scoreLabel = final ? `<div class="result-score-label"><span>${escapeHtml(state.players[self])}</span><span>${escapeHtml(state.players[1 - self])}</span></div>` : "";
     const panel = document.createElement("div");
     panel.className = `choice-panel choice-panel-result result-${outcome}${final ? " result-final" : ""}`;
-    panel.innerHTML = `${resultAtmosphereMarkup(outcome)}<div class="result-seal" aria-hidden="true">${seal}</div><p class="result-kicker">${final ? `${matchLabel}決着` : "一局決着"}</p><h2 id="choiceHeading">${heading}</h2><p class="result-caption">${caption}</p><div class="choice-score">${score}</div>${scoreLabel}<div class="choice-yaku">${resultYakuMarkup(result.yaku)}</div><button class="button primary result-next" data-next>${final ? "もう一度" : "次の局へ"}</button>`;
+    panel.innerHTML = `${resultAtmosphereMarkup(outcome)}<div class="result-seal" aria-hidden="true">${seal}</div><p class="result-kicker">${final ? `${matchLabel}決着` : "一局決着"}</p><h2 id="choiceHeading">${heading}</h2><p class="result-caption">${caption}</p><div class="choice-score">${score}</div>${scoreLabel}<div class="choice-yaku">${resultYakuMarkup(result.yaku)}</div><button class="button primary result-next" data-next>${final ? "タイトルに戻る" : "次の局へ"}</button>`;
     panel.querySelector("[data-next]").addEventListener("click", () => {
-      if (window.TierOnline?.shouldSendAction()) window.TierOnline.sendAction({ type: final ? "rematch" : "nextRound", playerName: localPlayerName });
-      else if (final) rematch();
+      if (final) {
+        returnToTitle();
+        return;
+      }
+      if (window.TierOnline?.shouldSendAction()) window.TierOnline.sendAction({ type: "nextRound", playerName: localPlayerName });
       else nextRound();
     });
     els.choice.append(panel);
     els.choice.dataset.scene = outcome;
+    els.choice.setAttribute("role", "dialog");
+    els.choice.setAttribute("aria-modal", "true");
     els.choice.setAttribute("aria-labelledby", "choiceHeading");
     els.choice.classList.remove("hidden");
     return;
@@ -1802,7 +1792,6 @@ function renderRoomStartState() {
 }
 
 function persistAndRender() {
-  ensureFieldMonthSlots();
   state.handCounts = [state.hands[0]?.length || state.handCounts[0] || 0, state.hands[1]?.length || state.handCounts[1] || 0];
   if (!applyingRemoteState && (mode === "solo" || window.TierOnline?.host)) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode, state }));
@@ -1893,9 +1882,6 @@ async function applyOnlineState(nextState) {
   await waitForRemoteDrawToLand(nextState);
   const previousState = state;
   mode = "online";
-  if (nextState.fieldMonthSlots && typeof nextState.fieldMonthSlots === "object" && !Array.isArray(nextState.fieldMonthSlots)) {
-    state.fieldMonthSlots = { ...(state.fieldMonthSlots || {}), ...nextState.fieldMonthSlots };
-  }
   const played = inferPlayedCard(previousState, nextState);
   if (played && !motionOrigins.has(played.cardId)) {
     await animatePlayedCardForSeat(played.cardId, played.actorSeat);
@@ -1914,7 +1900,6 @@ async function applyOnlineState(nextState) {
   applyingRemoteState = true;
   state = { ...createInitialState(), ...nextState, hands: nextState.hands || [[], []] };
   state.matchLength = normalizeMatchLength(state.matchLength);
-  ensureFieldMonthSlots();
   render();
   state.field.forEach((id) => motionOrigins.delete(id));
   drawFlightClones.forEach((_element, id) => {
@@ -2015,24 +2000,7 @@ document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addE
 document.querySelector("#captureDialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) event.currentTarget.close();
 });
-document.querySelector("#backLobbyButton").addEventListener("click", () => {
-  document.querySelector("#menuDialog").close();
-  if (window.TierOnline?.online) window.TierOnline.exitRoom();
-  clearTimeout(aiTimer);
-  clearTimeout(drawTimer);
-  clearTimeout(phaseTimer);
-  clearTimeout(interactionUnlockTimer);
-  interactionUnlockTimer = null;
-  interactionLocked = false;
-  selectedHandCardId = null;
-  queuedInput = null;
-  activeOutgoingCardId = null;
-  drawFlightClones.forEach((element) => element.remove());
-  drawFlightClones.clear();
-  mode = "lobby";
-  state = createInitialState();
-  render();
-});
+document.querySelector("#backLobbyButton").addEventListener("click", returnToTitle);
 
 updateOnlineMatchSummary();
 render();

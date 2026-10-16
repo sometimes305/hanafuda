@@ -193,10 +193,7 @@ input:focus, select:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 
 .round-marker span { color: var(--ivory-dim); font-size: 9px; }
 .round-marker #roundProgress { color: var(--gold); font-weight: 700; }
 .play-surface { min-height: calc(var(--card-h) * 2 + 12px); display: grid; grid-template-columns: auto var(--card-w); align-content: center; justify-content: center; gap: clamp(9px, 2.6vw, 14px); position: relative; }
-.field-grid { --field-gap: clamp(4px, 1.15vw, 6px); display: grid; grid-template-columns: repeat(6, var(--card-w)); grid-template-rows: repeat(2, var(--card-h)); align-content: center; gap: var(--field-gap); }
-.field-slot { width: var(--card-w); height: var(--card-h); position: relative; isolation: isolate; overflow: visible; }
-.field-card-layer { position: absolute; inset: 0; transform: translate(var(--field-stack-offset, 0), var(--field-stack-offset, 0)); transform-origin: center; }
-.field-card-layer .card { width: 100%; height: 100%; }
+.field-grid { display: grid; grid-template-columns: repeat(4, var(--card-w)); grid-auto-rows: var(--card-h); align-content: center; gap: clamp(5px, 1.7vw, 9px); }
 .deck-slot { width: var(--card-w); min-height: var(--card-h); align-self: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; position: relative; }
 .deck-pile { width: calc(var(--card-w) * .86); height: calc(var(--card-h) * .86); position: relative; z-index: 2; filter: drop-shadow(0 4px 4px #000b); transition: opacity 160ms ease, transform 160ms cubic-bezier(.25, 1, .5, 1); }
 .deck-pile::before, .deck-pile::after, .deck-card { content: ""; position: absolute; inset: 0; border: 1px solid #5a160f; border-radius: 3px; background: #8f0500 url("assets/cards/48.png") center / 100% 100%; }
@@ -358,17 +355,16 @@ button.card { cursor: pointer; }
 .choice-score small { margin-left: 3px; color: var(--gold); font-size: 16px; }
 .choice-panel-yaku { min-height: 410px; padding-top: 21px; }
 .choice-panel-yaku .yaku-seal { width: 54px; height: 54px; margin-bottom: 8px; font-size: 27px; }
-.choice-panel-koi { min-height: 330px; }
-.choice-panel-koi .choice-seal { width: 58px; height: 58px; margin-bottom: 10px; font-size: 28px; }
-.choice-panel-koi h2 { margin-bottom: 14px; font-size: 25px; }
-.choice-yaku-reminder { min-width: 210px; align-items: baseline; margin: 0 0 24px; padding-block: 7px; border-top: 1px solid #655033; border-bottom: 1px solid #655033; }
+.choice-panel-koi { width: min(100%, 460px); min-height: 0; display: grid; align-items: stretch; gap: 9px; padding: 13px 16px 15px; background: linear-gradient(180deg, #19140ff5, #0c0a08f5); pointer-events: auto; animation: koiPanelIn 520ms cubic-bezier(.16, 1, .3, 1) both; }
+.choice-panel-koi h2 { margin: 0; font-size: 20px; line-height: 1.25; }
+.choice-yaku-reminder { min-width: 0; align-items: baseline; margin: 0; padding-block: 5px; border-top: 1px solid #655033; border-bottom: 1px solid #655033; }
 .choice-yaku-reminder span { border: 0; padding: 0; color: var(--ivory); }
 .choice-yaku-reminder b { color: var(--gold-bright); font: 700 17px "Kaisei Decol", serif; }
 .yaku-title { max-width: 305px; margin: 6px 0 5px !important; display: flex; justify-content: center; align-items: baseline; flex-wrap: wrap; color: var(--ivory); font-size: 35px !important; line-height: 1.18 !important; letter-spacing: .08em !important; text-wrap: balance; }
 .yaku-title span { white-space: nowrap; }
 .yaku-title i { margin-inline: .1em; color: var(--gold); font-size: .58em; font-style: normal; }
 .yaku-title.many { font-size: 27px !important; }
-.choice-score.yaku-score { margin: 8px 0 0; color: var(--gold-bright); font-size: 54px; line-height: 1; animation: yakuScoreIn 900ms cubic-bezier(.16, 1, .3, 1) 420ms both; }
+.choice-score.yaku-score { margin: 0; color: var(--gold-bright); font-size: 34px; line-height: 1; animation: none; }
 .choice-score.yaku-score strong { font: inherit; }
 .choice-score.yaku-score small { font-size: 19px; }
 .yaku-score-label { margin: 4px 0 12px !important; color: var(--gold) !important; font-size: 9px !important; letter-spacing: .18em; }
@@ -381,24 +377,27 @@ button.card { cursor: pointer; }
 .choice-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .choice-buttons .button { min-height: 48px; }
 .choice-panel .button { min-width: 126px; animation: resultItemIn 700ms cubic-bezier(.16, 1, .3, 1) 850ms both; }
-.cut-in-overlay { padding-inline: 0; background: #050403dc; backdrop-filter: blur(8px); }
-.cut-in-overlay::before { background: radial-gradient(ellipse at center, #b38b3a35, transparent 55%); animation-duration: 2100ms; }
-.cut-in-panel { width: 100%; min-height: 300px; position: relative; isolation: isolate; overflow: hidden; padding: 38px 22px 42px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(90deg, #090704, #27170e 22%, #160f09 50%, #27170e 78%, #090704); border-top: 1px solid #c29a55; border-bottom: 1px solid #c29a55; box-shadow: inset 0 6px 8px #0009, inset 0 -6px 8px #0009; text-align: center; clip-path: inset(0); animation: cutInBand 1450ms cubic-bezier(.16, 1, .3, 1) both; }
+.choice-panel-koi .button { animation: resultItemIn 360ms cubic-bezier(.16, 1, .3, 1) 140ms both; }
+.cut-in-overlay, .koi-overlay { background: transparent; backdrop-filter: none; }
+.cut-in-overlay::before, .koi-overlay::before { display: none; }
+.cut-in-overlay { padding: 0; pointer-events: none; }
+.koi-overlay { place-items: end center; padding: 12px 12px max(18px, env(safe-area-inset-bottom)); pointer-events: none; animation: none; }
+.cut-in-panel { width: min(calc(100% - 24px), 480px); min-height: 0; position: relative; isolation: isolate; overflow: hidden; padding: 13px 18px 14px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "player title score" "kicker title score"; align-items: center; column-gap: 14px; background: linear-gradient(90deg, #090704ed, #27170ef2 24%, #160f09f5 50%, #27170ef2 76%, #090704ed); border-top: 1px solid #c29a55; border-bottom: 1px solid #c29a55; box-shadow: 0 5px 8px #000a, inset 0 1px #f0cf7a24; text-align: center; animation: yakuRibbonPass 3200ms cubic-bezier(.16, 1, .3, 1) both; }
 .cut-in-panel::before, .cut-in-panel::after { content: ""; width: 72%; height: 1px; position: absolute; left: 14%; z-index: 2; background: linear-gradient(90deg, transparent, #e2bd6f, transparent); opacity: .7; }
-.cut-in-panel::before { top: 11px; }
-.cut-in-panel::after { bottom: 11px; }
-.cut-in-panel > :not(.result-atmosphere) { position: relative; z-index: 3; animation: cutInContent 1300ms cubic-bezier(.16, 1, .3, 1) 360ms both; }
-.cut-in-player { margin: 0 0 4px; color: var(--ivory-dim); font-size: 12px; font-weight: 600; letter-spacing: .12em; }
-.cut-in-yaku .yaku-title { max-width: 430px; margin-block: 12px 7px !important; font-size: 43px !important; }
-.cut-in-yaku .yaku-title.many { font-size: 32px !important; }
-.cut-in-yaku .yaku-score { margin-top: 10px; font-size: 60px; }
-.cut-in-yaku .result-aura { top: -18px; }
-.cut-in-decision { min-height: 270px; }
-.cut-in-decision h2 { margin: 10px 0 3px; color: var(--gold-bright); font: 700 58px/1.12 "Kaisei Decol", serif; letter-spacing: .14em; text-indent: .14em; text-shadow: 0 3px #000; }
-.cut-in-caption { margin: 7px 0 0; color: var(--ivory-dim); font-size: 12px; letter-spacing: .12em; }
+.cut-in-panel::before { top: 6px; }
+.cut-in-panel::after { bottom: 6px; }
+.cut-in-panel > * { position: relative; z-index: 3; }
+.cut-in-player { grid-area: player; margin: 0; color: var(--ivory-dim); font-size: 10px; font-weight: 600; letter-spacing: .08em; white-space: nowrap; }
+.cut-in-panel .result-kicker { grid-area: kicker; }
+.cut-in-yaku .yaku-title { grid-area: title; max-width: none; margin: 0 !important; font-size: 30px !important; }
+.cut-in-yaku .yaku-title.many { font-size: 24px !important; }
+.cut-in-yaku .yaku-score { grid-area: score; }
+.cut-in-decision { min-height: 0; display: flex; flex-direction: row; justify-content: center; gap: 13px; animation-duration: 2700ms; }
+.cut-in-decision h2 { margin: 0; color: var(--gold-bright); font: 700 38px/1.12 "Kaisei Decol", serif; letter-spacing: .12em; text-indent: .12em; text-shadow: 0 2px #000; }
+.cut-in-caption { margin: 0; color: var(--ivory-dim); font-size: 11px; letter-spacing: .08em; white-space: nowrap; }
 .decision-agari { background: linear-gradient(90deg, #080604, #421711 25%, #210d09 50%, #421711 75%, #080604); }
 .decision-agari h2 { color: #f5e6c8; }
-.decision-score { margin-top: 14px; font-size: 38px; }
+.decision-score { min-width: 0; margin: 0; font-size: 30px; }
 .decision-koi .result-ring { border-color: #d2ad6670; }
 .decision-agari .result-ring { border-color: #d663526e; }
 .result-atmosphere { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
@@ -417,8 +416,9 @@ button.card { cursor: pointer; }
 @keyframes choiceBackdropIn { from { opacity: 0; backdrop-filter: blur(0); } }
 @keyframes backdropWash { from { transform: scale(.7); opacity: 0; } }
 @keyframes choicePanelIn { from { transform: translateY(18px) scale(.965); opacity: 0; filter: blur(6px) brightness(.72); } }
-@keyframes cutInBand { from { clip-path: inset(0 50%); opacity: .25; filter: brightness(.55); } 62% { clip-path: inset(0 0); opacity: 1; } }
-@keyframes cutInContent { from { transform: scale(.84); opacity: 0; filter: blur(8px); } }
+@keyframes koiPanelIn { from { transform: translateY(calc(100% + 28px)); opacity: .4; } }
+@keyframes yakuRibbonPass { 0% { transform: translateX(112%); opacity: 0; } 16% { transform: translateX(0); opacity: 1; } 72% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(-112%); opacity: 0; } }
+@keyframes yakuRibbonFade { 0%, 100% { opacity: 0; } 12%, 78% { opacity: 1; } }
 @keyframes resultSealIn { from { transform: rotate(-18deg) scale(.62); opacity: 0; filter: blur(4px); } }
 @keyframes resultItemIn { from { transform: translateY(9px); opacity: 0; } }
 @keyframes yakuScoreIn { from { transform: scale(.76); opacity: 0; filter: blur(4px); } }
@@ -510,8 +510,7 @@ button.card { cursor: pointer; }
 @media (max-width: 380px) {
   .captured-board-rail { gap: 2px; }
   .capture-pile-label { gap: 2px; }
-  .field-grid { --field-gap: 3px; }
-  .play-surface { gap: 6px; }
+  .field-grid { gap: 4px; }
 }
 
 @media (min-width: 521px) {
@@ -543,6 +542,8 @@ button.card { cursor: pointer; }
   .card.matchable {
     animation: none !important;
   }
+  .cut-in-yaku { animation: yakuRibbonFade 1400ms ease both !important; }
+  .cut-in-decision { animation: yakuRibbonFade 1200ms ease both !important; }
   .deck-pile.drawing { animation-duration: 380ms !important; }
   .drawn-card-preview.revealing .drawn-card { animation-name: deckFlipTiltReduced !important; animation-duration: 320ms !important; }
   .drawn-card-preview.revealing .card-face { animation-name: deckFlipFrontReduced !important; animation-duration: 320ms !important; }
