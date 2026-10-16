@@ -3,18 +3,18 @@ const MONTH_NAMES = ["一月", "二月", "三月", "四月", "五月", "六月",
 const MATCH_LENGTHS = [3, 6, 12];
 const MATCH_LENGTH_LABELS = { 3: "三局", 6: "六局", 12: "十二局" };
 const CAPTURE_GROUPS = [["bright", "光"], ["animal", "たね"], ["ribbon", "短冊"], ["chaff", "かす"]];
-const DRAW_REVEAL_DURATION = 1800;
-const CAPTURE_FLIGHT_DURATION = 1100;
-const CAPTURE_FLIGHT_STAGGER = 90;
+const DRAW_REVEAL_DURATION = 2400;
+const CAPTURE_FLIGHT_DURATION = 1500;
+const CAPTURE_FLIGHT_STAGGER = 130;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
-const PLAY_FLIGHT_DURATION = 650;
-const MATCH_SLIDE_DURATION = 340;
-const REDUCED_DRAW_REVEAL_DURATION = 280;
-const REDUCED_PLAY_FLIGHT_DURATION = 240;
-const REDUCED_CAPTURE_FLIGHT_DURATION = 320;
-const REDUCED_MATCH_SLIDE_DURATION = 180;
-const LAYOUT_REFLOW_DURATION = 360;
-const REDUCED_LAYOUT_REFLOW_DURATION = 160;
+const PLAY_FLIGHT_DURATION = 900;
+const MATCH_SLIDE_DURATION = 520;
+const REDUCED_DRAW_REVEAL_DURATION = 1300;
+const REDUCED_PLAY_FLIGHT_DURATION = 650;
+const REDUCED_CAPTURE_FLIGHT_DURATION = 900;
+const REDUCED_MATCH_SLIDE_DURATION = 420;
+const LAYOUT_REFLOW_DURATION = 480;
+const REDUCED_LAYOUT_REFLOW_DURATION = 300;
 const CARD_MAP = new Map(window.HanafudaCards.cards.map((card) => [card.id, card]));
 const CARD_ID_BY_KEY = new Map(window.HanafudaCards.cards.filter((card) => card.key !== "plain").map((card) => [card.key, card.id]));
 
@@ -289,15 +289,15 @@ function captureTargetPoint(actorSeat, cardId, incomingIds) {
 }
 
 function animateCapturedCards(actorSeat, ids) {
-  if (!ids.length) return;
+  if (!ids.length) return Promise.resolve();
   const reducedMotion = prefersReducedMotion();
-  ids.forEach((id, index) => {
+  const flights = ids.map((id, index) => {
     const source = captureSourceRect(id);
     const target = captureTargetPoint(actorSeat, id, ids);
     motionOrigins.delete(id);
     if (!source || !target) {
       captureFlightIds.delete(id);
-      return;
+      return Promise.resolve();
     }
     captureFlightIds.add(id);
     const clone = createCardElement(id);
@@ -334,7 +334,7 @@ function animateCapturedCards(actorSeat, ids) {
       easing: "cubic-bezier(.16, 1, .3, 1)",
       fill: "forwards"
     });
-    animation.finished.catch(() => {}).finally(() => {
+    return animation.finished.catch(() => {}).finally(() => {
       captureFlightIds.delete(id);
       const rail = actorSeat === localSeat()
         ? document.querySelector("#capturedBoardRail")
@@ -343,11 +343,16 @@ function animateCapturedCards(actorSeat, ids) {
       clone.remove();
     });
   });
+  return Promise.all(flights);
 }
 
-function captureCards(actorSeat, ids) {
-  animateCapturedCards(actorSeat, ids);
+async function captureCards(actorSeat, ids) {
+  const captureMotion = animateCapturedCards(actorSeat, ids);
   state.captures[actorSeat].push(...ids);
+  state.phase = "capture";
+  state.pending = { actorSeat, capturedCards: [...ids] };
+  persistAndRender();
+  await captureMotion;
 }
 
 async function playCard(cardId, actorSeat = localSeat()) {
@@ -362,15 +367,15 @@ async function playCard(cardId, actorSeat = localSeat()) {
   if (index < 0) return;
   hand.splice(index, 1);
   state.handCounts[actorSeat] = hand.length;
-  beginResolve(cardId, "hand", actorSeat);
+  await beginResolve(cardId, "hand", actorSeat);
 }
 
-function beginResolve(cardId, source, actorSeat) {
+async function beginResolve(cardId, source, actorSeat) {
   const card = CARD_MAP.get(cardId);
   const matches = state.field.filter((id) => CARD_MAP.get(id).month === card.month);
   if (matches.length === 3) {
     state.field = state.field.filter((id) => !matches.includes(id));
-    captureCards(actorSeat, [cardId, ...matches]);
+    await captureCards(actorSeat, [cardId, ...matches]);
     if (source === "hand") drawCard(actorSeat);
     else finishResolution(actorSeat);
     return;
@@ -385,7 +390,7 @@ function beginResolve(cardId, source, actorSeat) {
     }
     return;
   }
-  resolveAgainstField(cardId, matches[0] || null, actorSeat);
+  await resolveAgainstField(cardId, matches[0] || null, actorSeat);
   if (source === "hand") drawCard(actorSeat);
   else finishResolution(actorSeat);
 }
@@ -397,19 +402,19 @@ async function chooseMatch(fieldCardId, actorSeat = localSeat(), options = {}) {
   if (!options.preAnimated) await animatePendingCardToMatch(cardId, fieldCardId);
   if (state.phase !== "select" || state.pending?.cardId !== cardId || state.pending?.actorSeat !== actorSeat) return;
   state.pending = null;
-  resolveAgainstField(cardId, fieldCardId, actorSeat);
+  await resolveAgainstField(cardId, fieldCardId, actorSeat);
   if (source === "hand") drawCard(actorSeat);
   else finishResolution(actorSeat);
 }
 
-function resolveAgainstField(cardId, matchId, actorSeat) {
+async function resolveAgainstField(cardId, matchId, actorSeat) {
   if (!matchId) {
     motionOrigins.delete(cardId);
     state.field.push(cardId);
     return;
   }
   state.field = state.field.filter((id) => id !== matchId);
-  captureCards(actorSeat, [cardId, matchId]);
+  await captureCards(actorSeat, [cardId, matchId]);
 }
 
 function drawCard(actorSeat) {
@@ -422,10 +427,10 @@ function drawCard(actorSeat) {
   state.pending = { actorSeat, drawnCard: drawn };
   persistAndRender();
   clearTimeout(drawTimer);
-  drawTimer = window.setTimeout(() => {
+  drawTimer = window.setTimeout(async () => {
     if (state.phase !== "draw" || state.pending?.drawnCard !== drawn || state.pending?.actorSeat !== actorSeat) return;
     state.pending = null;
-    beginResolve(drawn, "draw", actorSeat);
+    await beginResolve(drawn, "draw", actorSeat);
   }, drawRevealDuration());
 }
 
@@ -455,8 +460,8 @@ function isAuthoritativeGame() {
 }
 
 function cutInHoldDuration(kind) {
-  if (prefersReducedMotion()) return 280;
-  return kind === "yaku" ? 2500 : 2200;
+  if (prefersReducedMotion()) return kind === "yaku" ? 1400 : 1200;
+  return kind === "yaku" ? 3200 : 2700;
 }
 
 function scheduleYakuChoice(actorSeat) {
@@ -472,7 +477,7 @@ function scheduleYakuChoice(actorSeat) {
     persistAndRender();
     if (mode === "solo" && actorSeat === 1) {
       const shouldFinish = state.pending.points >= 5 || state.deck.length < 8 || Math.random() > .55;
-      aiTimer = window.setTimeout(() => chooseKoi(shouldFinish ? "agari" : "koi", 1), prefersReducedMotion() ? 300 : 1700);
+      aiTimer = window.setTimeout(() => chooseKoi(shouldFinish ? "agari" : "koi", 1), prefersReducedMotion() ? 750 : 1900);
     }
   }, cutInHoldDuration("yaku"));
 }
@@ -589,7 +594,7 @@ function evaluateYaku(ids) {
 function scheduleAiIfNeeded() {
   clearTimeout(aiTimer);
   if (mode !== "solo" || state.phase !== "play" || state.currentPlayer !== 1) return;
-  aiTimer = window.setTimeout(aiTurn, 1100);
+  aiTimer = window.setTimeout(aiTurn, 1500);
 }
 
 function aiTurn() {
@@ -800,7 +805,7 @@ async function handleHandClick(cardId, sourceElement) {
   clearCapturePreview();
   if (window.TierOnline?.shouldSendAction()) {
     window.TierOnline.sendAction({ type: "play", cardId, playerName: localPlayerName });
-  } else playCard(cardId, localSeat());
+  } else await playCard(cardId, localSeat());
   window.setTimeout(() => { interactionLocked = false; }, window.TierOnline?.shouldSendAction() ? 950 : 160);
 }
 
@@ -810,7 +815,7 @@ async function handleMatchClick(cardId, sourceElement) {
   await animatePendingCardToMatch(state.pending.cardId, cardId);
   if (window.TierOnline?.shouldSendAction()) {
     window.TierOnline.sendAction({ type: "match", cardId, playerName: localPlayerName });
-  } else chooseMatch(cardId, localSeat(), { preAnimated: true });
+  } else await chooseMatch(cardId, localSeat(), { preAnimated: true });
   window.setTimeout(() => { interactionLocked = false; }, window.TierOnline?.shouldSendAction() ? 760 : 130);
 }
 
@@ -1300,6 +1305,7 @@ function renderTurnBanner(self) {
     const pendingCard = CARD_MAP.get(state.pending?.cardId);
     text = state.pending?.actorSeat === self ? `${pendingCard?.monthName || "同じ月"}に合わせる札を選ぶ` : `${state.players[state.currentPlayer]}が選んでいます`;
   }
+  else if (state.phase === "capture") text = state.pending?.actorSeat === self ? "取札へ運んでいます" : `${state.players[state.pending?.actorSeat] || "相手"}が札を取っています`;
   else if (state.phase === "draw") text = state.pending?.actorSeat === self ? "山札をめくっています" : `${state.players[state.currentPlayer]}が山札をめくっています`;
   else if (state.phase === "yakuReveal") text = `${state.players[state.pending?.actorSeat] || "プレイヤー"}の役が成立`;
   else if (state.phase === "koi") text = state.pending?.actorSeat === self ? "こいこいか上がりを選ぶ" : `${state.players[state.pending?.actorSeat]}が選んでいます`;
@@ -1551,7 +1557,7 @@ async function applyOnlineState(nextState) {
     const previous = new Set(previousCaptures[seat] || []);
     return (nextCaptures[seat] || []).filter((id) => !previous.has(id));
   });
-  addedBySeat.forEach((ids, seat) => animateCapturedCards(seat, ids));
+  const captureMotion = Promise.all(addedBySeat.map((ids, seat) => animateCapturedCards(seat, ids)));
   applyingRemoteState = true;
   state = { ...createInitialState(), ...nextState, hands: nextState.hands || [[], []] };
   state.matchLength = normalizeMatchLength(state.matchLength);
@@ -1559,6 +1565,7 @@ async function applyOnlineState(nextState) {
   state.field.forEach((id) => motionOrigins.delete(id));
   applyingRemoteState = false;
   remoteDrawStartedAt = state.phase === "draw" ? motionClock() : 0;
+  await captureMotion;
 }
 
 function importOnlineState(nextState) {
