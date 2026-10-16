@@ -25,6 +25,14 @@ const REDUCED_MATCH_LAND_HOLD_DURATION = 50;
 const REDUCED_CAPTURE_LAND_HOLD_DURATION = 60;
 const LAYOUT_REFLOW_DURATION = 480;
 const REDUCED_LAYOUT_REFLOW_DURATION = 300;
+const OPENING_DRAW_DURATION = 3800;
+const REDUCED_OPENING_DRAW_DURATION = 1400;
+const ROUND_DEAL_CARD_DURATION = 680;
+const ROUND_DEAL_STAGGER = 90;
+const ROUND_DEAL_HOLD_DURATION = 430;
+const REDUCED_ROUND_DEAL_CARD_DURATION = 260;
+const REDUCED_ROUND_DEAL_STAGGER = 24;
+const REDUCED_ROUND_DEAL_HOLD_DURATION = 90;
 const CARD_MAP = new Map(window.HanafudaCards.cards.map((card) => [card.id, card]));
 const CARD_ID_BY_KEY = new Map(window.HanafudaCards.cards.filter((card) => card.key !== "plain").map((card) => [card.key, card.id]));
 
@@ -48,6 +56,8 @@ const motionOrigins = new Map();
 const drawFlightClones = new Map();
 let remoteStateQueue = Promise.resolve();
 let remoteDrawStartedAt = 0;
+let lastAnimatedDealKey = null;
+let renderedOpeningDrawKey = null;
 
 let state = createInitialState();
 
@@ -61,7 +71,8 @@ const els = {
   choice: document.querySelector("#choiceOverlay"),
   toast: document.querySelector("#toast"),
   deckPile: document.querySelector("#deckPile"),
-  drawnCardPreview: document.querySelector("#drawnCardPreview")
+  drawnCardPreview: document.querySelector("#drawnCardPreview"),
+  roundIntro: document.querySelector("#roundIntro")
 };
 
 function createInitialState() {
@@ -69,6 +80,8 @@ function createInitialState() {
     active: false,
     round: 1,
     matchLength: 12,
+    matchToken: 0,
+    dealSequence: 0,
     dealer: 0,
     currentPlayer: 0,
     players: ["あなた", "相手"],
@@ -131,11 +144,12 @@ function shuffle(items) {
 }
 
 function dealRound() {
+  clearTimeout(aiTimer);
   clearTimeout(drawTimer);
   clearTimeout(phaseTimer);
   clearTimeout(interactionUnlockTimer);
   interactionUnlockTimer = null;
-  interactionLocked = false;
+  interactionLocked = true;
   selectedHandCardId = null;
   queuedInput = null;
   activeOutgoingCardId = null;
@@ -163,15 +177,92 @@ function dealRound() {
   state.captures = [[], []];
   state.handCounts = [8, 8];
   state.currentPlayer = state.dealer;
-  state.phase = "play";
-  state.pending = null;
+  state.dealSequence = Number(state.dealSequence || 0) + 1;
+  state.phase = "dealing";
+  state.pending = { dealSequence: state.dealSequence };
   state.lastDeclared = [0, 0];
   state.koiCount = [0, 0];
   state.lastResult = null;
   state.message = "";
   sortHands();
   persistAndRender();
-  scheduleAiIfNeeded();
+  scheduleRoundDealCompletion(state.dealSequence);
+}
+
+function openingDrawDuration() {
+  return prefersReducedMotion() ? REDUCED_OPENING_DRAW_DURATION : OPENING_DRAW_DURATION;
+}
+
+function roundDealDuration() {
+  const reduced = prefersReducedMotion();
+  const duration = reduced ? REDUCED_ROUND_DEAL_CARD_DURATION : ROUND_DEAL_CARD_DURATION;
+  const stagger = reduced ? REDUCED_ROUND_DEAL_STAGGER : ROUND_DEAL_STAGGER;
+  const hold = reduced ? REDUCED_ROUND_DEAL_HOLD_DURATION : ROUND_DEAL_HOLD_DURATION;
+  return duration + stagger * 23 + hold;
+}
+
+function drawOpeningCards() {
+  const pool = shuffle(window.HanafudaCards.cards.map((card) => card.id));
+  while (pool.length >= 2) {
+    const cards = [pool.pop(), pool.pop()];
+    if (CARD_MAP.get(cards[0])?.month !== CARD_MAP.get(cards[1])?.month) return cards;
+  }
+  return ["1-1", "12-1"];
+}
+
+function startOpeningDraw() {
+  clearTimeout(aiTimer);
+  clearTimeout(drawTimer);
+  clearTimeout(phaseTimer);
+  clearTimeout(interactionUnlockTimer);
+  const cards = drawOpeningCards();
+  const winnerSeat = CARD_MAP.get(cards[0]).month < CARD_MAP.get(cards[1]).month ? 0 : 1;
+  state.matchToken = Date.now();
+  state.dealSequence = 0;
+  state.dealer = winnerSeat;
+  state.currentPlayer = winnerSeat;
+  state.hands = [[], []];
+  state.handCounts = [0, 0];
+  state.field = [];
+  state.deck = [];
+  state.captures = [[], []];
+  state.phase = "openingDraw";
+  state.pending = { cards, winnerSeat };
+  state.lastDeclared = [0, 0];
+  state.koiCount = [0, 0];
+  state.lastResult = null;
+  state.message = "";
+  interactionUnlockTimer = null;
+  interactionLocked = true;
+  selectedHandCardId = null;
+  queuedInput = null;
+  activeOutgoingCardId = null;
+  lastAnimatedDealKey = null;
+  renderedOpeningDrawKey = null;
+  motionOrigins.clear();
+  captureFlightIds.clear();
+  drawFlightClones.forEach((element) => element.remove());
+  drawFlightClones.clear();
+  persistAndRender();
+  if (isAuthoritativeGame()) {
+    phaseTimer = window.setTimeout(() => {
+      if (state.phase === "openingDraw" && state.pending?.winnerSeat === winnerSeat) dealRound();
+    }, openingDrawDuration());
+  }
+}
+
+function scheduleRoundDealCompletion(sequence) {
+  if (!isAuthoritativeGame()) return;
+  clearTimeout(phaseTimer);
+  phaseTimer = window.setTimeout(() => {
+    if (state.phase !== "dealing" || state.dealSequence !== sequence) return;
+    state.phase = "play";
+    state.pending = null;
+    interactionLocked = false;
+    persistAndRender();
+    flushQueuedInput();
+    scheduleAiIfNeeded();
+  }, roundDealDuration());
 }
 
 function fieldHasFourOfMonth(field) {
@@ -201,7 +292,7 @@ function startSolo() {
   state.active = true;
   state.players = [localPlayerName === "Player" ? "あなた" : localPlayerName, "花見の達人"];
   state.playerIcons = [localPlayerIcon, null];
-  dealRound();
+  startOpeningDraw();
 }
 
 function startOnlineGame() {
@@ -221,7 +312,7 @@ function startOnlineGame() {
   state.active = true;
   state.players = participants.slice(0, 2).map((participant) => participant.name);
   state.playerIcons = participants.slice(0, 2).map((participant) => participant.icon || null);
-  dealRound();
+  startOpeningDraw();
 }
 
 function localSeat() {
@@ -266,6 +357,48 @@ function animateCardReflow(elements, previousRects, keyFor) {
       { translate: `${dx}px ${dy}px` },
       { translate: "0px 0px" }
     ], { duration, easing: "cubic-bezier(.16, 1, .3, 1)" });
+  });
+}
+
+function animateRoundDeal() {
+  if (state.phase !== "dealing") return;
+  const self = localSeat();
+  const localHand = visibleHand();
+  const expectedHandCount = state.handCounts?.[self] ?? 0;
+  if (localHand.length < expectedHandCount) return;
+  const key = `${state.matchToken}:${state.dealSequence}:${self}:${localHand.join(",")}`;
+  if (lastAnimatedDealKey === key) return;
+  const deckRect = els.deckPile.getBoundingClientRect();
+  if (!deckRect.width || !deckRect.height) return;
+  lastAnimatedDealKey = key;
+  const ownCards = [...els.hand.querySelectorAll(".card")];
+  const opponentCards = [...els.opponentHand.querySelectorAll(".card")];
+  const fieldCards = [...els.field.querySelectorAll(".card")];
+  const targets = [];
+  for (let index = 0; index < 8; index += 1) {
+    if (opponentCards[index]) targets.push(opponentCards[index]);
+    if (fieldCards[index]) targets.push(fieldCards[index]);
+    if (ownCards[index]) targets.push(ownCards[index]);
+  }
+  const sourceX = deckRect.left + deckRect.width / 2;
+  const sourceY = deckRect.top + deckRect.height / 2;
+  const reduced = prefersReducedMotion();
+  const duration = reduced ? REDUCED_ROUND_DEAL_CARD_DURATION : ROUND_DEAL_CARD_DURATION;
+  const stagger = reduced ? REDUCED_ROUND_DEAL_STAGGER : ROUND_DEAL_STAGGER;
+  targets.forEach((element, index) => {
+    const rect = element.getBoundingClientRect();
+    const dx = sourceX - (rect.left + rect.width / 2);
+    const dy = sourceY - (rect.top + rect.height / 2);
+    element.animate([
+      { translate: `${dx}px ${dy}px`, scale: reduced ? ".96" : ".82", opacity: 0, filter: "brightness(.72)" },
+      { offset: reduced ? .35 : .22, opacity: 1, filter: "brightness(1.16)" },
+      { translate: "0px 0px", scale: "1", opacity: 1, filter: "brightness(1)" }
+    ], {
+      duration,
+      delay: index * stagger,
+      easing: "cubic-bezier(.16, 1, .3, 1)",
+      fill: "backwards"
+    });
   });
 }
 
@@ -610,7 +743,7 @@ function rematch() {
   state.active = true;
   state.players = players;
   state.playerIcons = playerIcons;
-  dealRound();
+  startOpeningDraw();
 }
 
 function returnToTitle() {
@@ -1508,6 +1641,64 @@ function renderDeck() {
   els.drawnCardPreview.classList.toggle("ready", state.phase === "drawReady");
 }
 
+function renderRoundIntro() {
+  if (!els.roundIntro) return;
+  const cards = state.pending?.cards;
+  if (state.phase !== "openingDraw" || !Array.isArray(cards) || cards.length !== 2) {
+    els.roundIntro.classList.add("hidden");
+    els.roundIntro.replaceChildren();
+    return;
+  }
+
+  const winnerSeat = state.pending.winnerSeat;
+  const key = `${state.matchToken}:${cards.join(",")}:${winnerSeat}`;
+  els.roundIntro.classList.remove("hidden");
+  if (renderedOpeningDrawKey === key && els.roundIntro.childElementCount) return;
+  renderedOpeningDrawKey = key;
+  els.roundIntro.replaceChildren();
+
+  const panel = document.createElement("section");
+  panel.className = "opening-draw-panel";
+  const heading = document.createElement("header");
+  heading.className = "opening-draw-heading";
+  heading.innerHTML = '<span>対局のはじまり</span><h2>先攻決め</h2><p>早い月の札を引いた方が先攻</p>';
+  const cardRow = document.createElement("div");
+  cardRow.className = "opening-draw-cards";
+
+  cards.forEach((id, seat) => {
+    const card = CARD_MAP.get(id);
+    const spot = document.createElement("article");
+    spot.className = `opening-draw-spot${seat === winnerSeat ? " winner" : ""}`;
+    spot.style.setProperty("--draw-delay", `${420 + seat * 280}ms`);
+    spot.style.setProperty("--month-delay", `${1380 + seat * 280}ms`);
+    const player = document.createElement("strong");
+    player.className = "opening-draw-player";
+    player.textContent = state.players[seat] || (seat === localSeat() ? "あなた" : "相手");
+    const stage = document.createElement("div");
+    stage.className = "opening-card-stage";
+    const back = document.createElement("span");
+    back.className = "opening-card-back";
+    const face = createCardElement(id);
+    face.classList.add("opening-card-face");
+    const month = document.createElement("span");
+    month.className = "opening-card-month";
+    month.textContent = `${MONTH_NAMES[(card?.month || 1) - 1]}・${card?.monthName || "札"}`;
+    const first = document.createElement("span");
+    first.className = "opening-first-mark";
+    first.textContent = "先攻";
+    stage.append(back, face);
+    spot.append(player, stage, month, first);
+    cardRow.append(spot);
+  });
+
+  const result = document.createElement("p");
+  result.className = "opening-draw-result";
+  result.innerHTML = `<strong>${escapeHtml(state.players[winnerSeat] || "プレイヤー")}</strong><span>が先攻</span>`;
+  panel.append(heading, cardRow, result);
+  els.roundIntro.append(panel);
+  els.roundIntro.setAttribute("aria-label", `${state.players[winnerSeat] || "プレイヤー"}が早い月の札を引き、先攻に決まりました`);
+}
+
 function render() {
   const active = Boolean(state.active);
   els.lobby.classList.toggle("hidden", active);
@@ -1532,11 +1723,12 @@ function render() {
   const previousOpponentHandRects = snapshotCardRects(els.opponentHand.querySelectorAll(".card"), (_element, index) => index);
   const previousFieldRects = snapshotCardRects(els.field.querySelectorAll(".card"), (element) => element.dataset.cardId);
   const previousHandRects = snapshotCardRects(els.hand.querySelectorAll(".card"), (element) => element.dataset.cardId);
+  const dealing = state.phase === "dealing";
 
   els.opponentHand.replaceChildren();
   const opponentCount = state.handCounts?.[opponent] ?? state.hands[opponent]?.length ?? 0;
   for (let i = 0; i < opponentCount; i += 1) els.opponentHand.append(createCardElement("1-1", { back: true }));
-  animateCardReflow(els.opponentHand.querySelectorAll(".card"), previousOpponentHandRects, (_element, index) => index);
+  if (!dealing) animateCardReflow(els.opponentHand.querySelectorAll(".card"), previousOpponentHandRects, (_element, index) => index);
 
   const canPlay = isLocalTurn();
   const localHand = visibleHand();
@@ -1554,7 +1746,7 @@ function render() {
     else if (drawMatchable) element.addEventListener("click", () => handleDrawConfirm(id));
     els.field.append(element);
   });
-  animateCardReflow(els.field.querySelectorAll(".card"), previousFieldRects, (element) => element.dataset.cardId);
+  if (!dealing) animateCardReflow(els.field.querySelectorAll(".card"), previousFieldRects, (element) => element.dataset.cardId);
 
   els.hand.replaceChildren();
   localHand.forEach((id) => {
@@ -1578,21 +1770,30 @@ function render() {
     }
     els.hand.append(element);
   });
-  animateCardReflow(els.hand.querySelectorAll(".card"), previousHandRects, (element) => element.dataset.cardId);
+  if (!dealing) animateCardReflow(els.hand.querySelectorAll(".card"), previousHandRects, (element) => element.dataset.cardId);
 
   renderDeck();
   renderPendingPlayedCard();
   renderCapturedSummary(self);
   renderTurnBanner(self);
   renderChoice(self);
+  renderRoundIntro();
+  animateRoundDeal();
+}
+
+function yakuStatusChips(ids) {
+  const result = evaluateYaku(ids);
+  const reaches = getYakuProgress(ids).filter((item) => item.status === "reach");
+  return [
+    ...result.yaku.map((name) => `<span class="yaku-status-chip earned">成立 ${escapeHtml(name)}</span>`),
+    ...reaches.map((item) => `<span class="yaku-status-chip reach">リーチ ${escapeHtml(item.name)}</span>`)
+  ];
 }
 
 function renderCapturedSummary(seat) {
   const ids = state.captures[seat] || [];
   const opponentIds = state.captures[1 - seat] || [];
-  const result = evaluateYaku(ids);
   const progress = getYakuProgress(ids);
-  const reaches = progress.filter((item) => item.status === "reach");
 
   renderCapturedRail(document.querySelector("#capturedBoardRail"), ids);
   renderCapturedRail(document.querySelector("#opponentCapturedRail"), opponentIds);
@@ -1601,15 +1802,19 @@ function renderCapturedSummary(seat) {
     renderCaptureDialog(Number(openDialog.dataset.seat));
   }
 
-  const yakuChips = [
-    ...result.yaku.map((name) => `<span class="yaku-status-chip earned">成立 ${escapeHtml(name)}</span>`),
-    ...reaches.map((item) => `<span class="yaku-status-chip reach">リーチ ${escapeHtml(item.name)}</span>`)
-  ];
+  const yakuChips = yakuStatusChips(ids);
   if (!yakuChips.length && progress.length) {
     const next = progress[0];
     yakuChips.push(`<span class="yaku-status-chip">役の進み ${next.name} ${next.current}/${next.target}</span>`);
   }
   document.querySelector("#captureYakuStrip").innerHTML = yakuChips.length ? yakuChips.join("") : "札を取ると役の進みを表示";
+
+  const opponentStrip = document.querySelector("#opponentCaptureYakuStrip");
+  if (opponentStrip) {
+    const opponentChips = yakuStatusChips(opponentIds);
+    opponentStrip.innerHTML = opponentChips.join("");
+    opponentStrip.classList.toggle("hidden", !opponentChips.length);
+  }
 }
 
 function renderTurnBanner(self) {
@@ -1617,7 +1822,9 @@ function renderTurnBanner(self) {
   const turnActor = Number.isInteger(state.pending?.actorSeat) ? state.pending.actorSeat : state.currentPlayer;
   const opponentTurn = ["play", "select", "capture", "draw", "drawReady", "drawMoving", "yakuReveal", "koi"].includes(state.phase)
     && turnActor !== self;
-  if (opponentTurn) text = "相手の番";
+  if (state.phase === "openingDraw") text = "先攻を決めています";
+  else if (state.phase === "dealing") text = "札を配っています";
+  else if (opponentTurn) text = "相手の番";
   else if (state.phase === "select") {
     const pendingCard = CARD_MAP.get(state.pending?.cardId);
     text = `${pendingCard?.monthName || "同じ月"}に合わせる札を選ぶ`;

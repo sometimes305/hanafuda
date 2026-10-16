@@ -289,6 +289,7 @@ input:focus, select:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 
 .board-captures-opponent .capture-pile-cards { height: 31px; }
 .board-captures-opponent .capture-rail-card { height: 31px; }
 .capture-yaku-strip { min-height: 18px; display: flex; align-items: center; flex-wrap: wrap; gap: 3px; padding-top: 3px; border-top: 1px solid #3d3324; color: var(--ivory-dim); font-size: 8px; }
+.capture-yaku-strip-opponent { min-height: 15px; padding-top: 2px; }
 .yaku-status-chip { padding: 2px 5px; border: 1px solid #51442f; background: #0b0907; color: var(--ivory-dim); white-space: nowrap; }
 .yaku-status-chip.reach { border-color: #a88245; background: #4a2a1859; color: var(--gold-bright); }
 .yaku-status-chip.earned { border-color: #87322a; color: var(--ivory); }
@@ -339,6 +340,109 @@ button.card { cursor: pointer; }
 .card.matchable { box-shadow: 0 0 0 2px var(--gold-bright), 0 0 18px #e9c35fbb; animation: matchInvite 1100ms cubic-bezier(.16, 1, .3, 1) both; }
 @keyframes matchInvite { from { transform: translateY(3px) scale(.96); filter: brightness(1.35); } }
 @keyframes handConfirm { to { filter: brightness(1.14); box-shadow: 0 0 0 3px var(--gold-bright), 0 0 24px #e8bd5ecc; } }
+
+.round-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  max-width: 520px;
+  margin: auto;
+  display: grid;
+  place-items: center;
+  padding: max(18px, env(safe-area-inset-top)) 12px max(18px, env(safe-area-inset-bottom));
+  background: radial-gradient(circle at 50% 44%, #382a197d, #070604e8 66%);
+  pointer-events: none;
+  animation: openingIntroIn 360ms ease-out both;
+}
+.opening-draw-panel {
+  width: min(100%, 400px);
+  min-height: 400px;
+  position: relative;
+  overflow: hidden;
+  padding: 25px 18px 22px;
+  display: grid;
+  align-content: center;
+  gap: 20px;
+  border-top: 1px solid #d1aa63;
+  border-bottom: 1px solid #d1aa63;
+  background: linear-gradient(90deg, #090704e8, #21170ef5 18%, #17110cf7 50%, #21170ef5 82%, #090704e8);
+  box-shadow: 0 10px 40px #000c, inset 0 1px #f0cf7a1f;
+  text-align: center;
+}
+.opening-draw-panel::before,
+.opening-draw-panel::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+.opening-draw-panel::before {
+  width: 250px;
+  height: 250px;
+  left: 50%;
+  top: 54%;
+  border: 1px solid #c9a25b24;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 28px #c9a25b0a, 0 0 0 64px #c9a25b08;
+}
+.opening-draw-panel::after {
+  inset: 7px 0;
+  border-top: 1px solid #a984482e;
+  border-bottom: 1px solid #a984482e;
+}
+.opening-draw-panel > * { position: relative; z-index: 1; }
+.opening-draw-heading { display: grid; justify-items: center; gap: 4px; }
+.opening-draw-heading span { color: var(--gold); font-size: 9px; font-weight: 700; letter-spacing: .28em; text-indent: .28em; }
+.opening-draw-heading h2 { margin: 0; color: var(--ivory); font: 700 27px/1.3 "Kaisei Decol", serif; letter-spacing: .18em; text-indent: .18em; }
+.opening-draw-heading p { margin: 0; color: var(--ivory-dim); font-size: 10px; letter-spacing: .06em; }
+.opening-draw-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 24px; padding-inline: 13px; }
+.opening-draw-spot { min-width: 0; position: relative; display: grid; justify-items: center; gap: 6px; }
+.opening-draw-spot::before {
+  content: "";
+  width: 104px;
+  height: 104px;
+  position: absolute;
+  top: 30px;
+  border: 1px solid #d4ab5f66;
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(.72);
+}
+.opening-draw-spot.winner::before { animation: openingWinnerHalo 900ms cubic-bezier(.16, 1, .3, 1) 2150ms both; }
+.opening-draw-player { width: 100%; overflow: hidden; color: var(--ivory-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.opening-card-stage { width: clamp(66px, 20vw, 86px); height: calc(clamp(66px, 20vw, 86px) * 1.667); position: relative; perspective: 620px; }
+.opening-card-stage .card,
+.opening-card-back { width: 100%; height: 100%; position: absolute; inset: 0; border-radius: 5px; backface-visibility: hidden; transform-origin: 50% 50%; }
+.opening-card-stage .card { border-width: 2px; }
+.opening-card-back { z-index: 2; border: 2px solid #4c0d08; background: #8f0500 url("assets/cards/48.png") center / 100% 100%; box-shadow: 0 7px 15px #000c; animation: openingCardBack 950ms cubic-bezier(.45, 0, .2, 1) var(--draw-delay) both; }
+.opening-card-face { z-index: 1; box-shadow: 0 7px 15px #000c; animation: openingCardFace 950ms cubic-bezier(.45, 0, .2, 1) var(--draw-delay) both; }
+.opening-card-month { color: var(--ivory-dim); font: 700 11px "Kaisei Decol", serif; letter-spacing: .08em; opacity: 0; animation: openingMonthIn 520ms cubic-bezier(.16, 1, .3, 1) var(--month-delay) both; }
+.opening-first-mark {
+  position: absolute;
+  right: calc(50% - 55px);
+  top: 37px;
+  z-index: 4;
+  padding: 5px 7px;
+  border: 1px solid #e0b968;
+  border-radius: 50%;
+  background: #7d241ee8;
+  color: #fff2d6;
+  box-shadow: 0 3px 10px #000b;
+  font: 700 10px/1 "Kaisei Decol", serif;
+  opacity: 0;
+  transform: rotate(-10deg) scale(.55);
+}
+.opening-draw-spot.winner .opening-first-mark { animation: openingFirstMark 620ms cubic-bezier(.16, 1, .3, 1) 2250ms both; }
+.opening-draw-result { margin: -4px 0 0; display: flex; align-items: baseline; justify-content: center; gap: 7px; opacity: 0; animation: openingResultIn 650ms cubic-bezier(.16, 1, .3, 1) 2450ms both; }
+.opening-draw-result strong { max-width: 230px; overflow: hidden; color: var(--gold-bright); font: 700 20px "Kaisei Decol", serif; text-overflow: ellipsis; white-space: nowrap; }
+.opening-draw-result span { color: var(--ivory); font: 700 13px "Kaisei Decol", serif; white-space: nowrap; }
+@keyframes openingIntroIn { from { opacity: 0; } }
+@keyframes openingCardBack { 0%, 42% { transform: rotateY(0); } 58%, 100% { transform: rotateY(90deg); } }
+@keyframes openingCardFace { 0%, 42% { transform: rotateY(-90deg); filter: brightness(.72); } 58%, 100% { transform: rotateY(0); filter: brightness(1); } }
+@keyframes openingMonthIn { from { transform: translateY(5px); opacity: 0; } to { opacity: 1; } }
+@keyframes openingWinnerHalo { from { opacity: 0; transform: scale(.72); } 55% { opacity: .85; } to { opacity: .35; transform: scale(1.2); } }
+@keyframes openingFirstMark { from { opacity: 0; transform: rotate(-18deg) scale(.55); } to { opacity: 1; transform: rotate(-7deg) scale(1); } }
+@keyframes openingResultIn { from { transform: translateY(8px); opacity: 0; } to { opacity: 1; } }
 
 .choice-overlay { position: fixed; inset: 0; z-index: 30; max-width: 520px; margin: auto; display: grid; place-items: center; overflow: hidden; padding: 24px; background: #060504d6; backdrop-filter: blur(6px); animation: choiceBackdropIn 900ms ease-out both; }
 .choice-overlay::before { content: ""; position: absolute; inset: -25%; background: radial-gradient(circle, #bc91402b, transparent 42%); opacity: .65; animation: backdropWash 1400ms cubic-bezier(.16, 1, .3, 1) both; pointer-events: none; }
@@ -506,6 +610,8 @@ button.card { cursor: pointer; }
   .capture-pile-cards, .capture-rail-card { height: 31px; }
   .capture-yaku-strip { min-height: 15px; padding-top: 2px; }
   .turn-banner { padding-block: 4px; }
+  .opening-draw-panel { min-height: 340px; gap: 13px; padding-block: 18px; }
+  .opening-card-stage { width: 62px; height: calc(62px * 1.667); }
 }
 
 @media (max-width: 380px) {
@@ -519,6 +625,13 @@ button.card { cursor: pointer; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .round-intro,
+  .opening-card-back,
+  .opening-card-face,
+  .opening-card-month,
+  .opening-draw-spot.winner::before,
+  .opening-draw-spot.winner .opening-first-mark,
+  .opening-draw-result,
   .choice-overlay,
   .choice-panel,
   .cut-in-panel,
@@ -533,6 +646,12 @@ button.card { cursor: pointer; }
     animation-duration: 180ms !important;
     animation-delay: 0ms !important;
   }
+  .opening-card-back { display: none; }
+  .opening-card-face { transform: none !important; }
+  .opening-draw-spot.winner::before { opacity: .35; transform: scale(1.2); }
+  .opening-draw-spot.winner .opening-first-mark,
+  .opening-card-month,
+  .opening-draw-result { opacity: 1; transform: none; }
   .choice-overlay::before,
   .result-aura,
   .result-ring,
