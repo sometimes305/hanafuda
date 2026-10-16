@@ -1353,13 +1353,6 @@ function captureCounts(ids) {
   return counts;
 }
 
-function captureSummaryMarkup(ids) {
-  const counts = captureCounts(ids);
-  return [["光", counts.bright], ["たね", counts.animal], ["短冊", counts.ribbon], ["かす", counts.chaff]]
-    .map(([label, count]) => `<span class="capture-chip">${label}<b>${count}</b></span>`)
-    .join("");
-}
-
 function renderCapturedRail(target, ids) {
   if (!target) return;
   const previousRects = snapshotCardRects(target.querySelectorAll(".capture-rail-card"), (element) => element.dataset.cardId);
@@ -1460,8 +1453,7 @@ function drawReadyPrompt(matchCount) {
 
 function renderDeck() {
   const count = state.deck.length;
-  document.querySelector("#deckPileCount").textContent = count;
-  els.deckPile.setAttribute("aria-label", `山札 残り${count}枚`);
+  els.deckPile.setAttribute("aria-label", "山札");
   els.deckPile.classList.toggle("empty", count === 0);
   els.deckPile.classList.toggle("drawing", state.phase === "draw");
   els.drawnCardPreview.replaceChildren();
@@ -1501,7 +1493,6 @@ function render() {
   const opponent = 1 - self;
   document.querySelector("#monthLabel").textContent = MONTH_NAMES[Math.max(0, state.round - 1)] || `${state.round}局`;
   document.querySelector("#roundProgress").textContent = `${state.round} / ${state.matchLength}局`;
-  document.querySelector("#deckCount").textContent = `残り${state.deck.length}枚`;
   document.querySelector("#selfName").textContent = state.players[self] || "あなた";
   document.querySelector("#opponentName").textContent = state.players[opponent] || "相手";
   renderAvatar(document.querySelector("#selfAvatar"), state.players[self] || "あなた", state.playerIcons?.[self]);
@@ -1604,8 +1595,6 @@ function renderCapturedSummary(seat) {
   const reaches = progress.filter((item) => item.status === "reach");
 
   document.querySelector("#captureTotal").textContent = ids.length;
-  document.querySelector("#capturedSummary").innerHTML = captureSummaryMarkup(ids);
-  document.querySelector("#opponentCapturedSummary").innerHTML = captureSummaryMarkup(opponentIds);
   renderCapturedRail(document.querySelector("#capturedBoardRail"), ids);
   renderCapturedRail(document.querySelector("#opponentCapturedRail"), opponentIds);
   const openDialog = document.querySelector("#captureDialog");
@@ -1615,10 +1604,7 @@ function renderCapturedSummary(seat) {
 
   const yakuChips = [
     ...result.yaku.map((name) => `<span class="yaku-status-chip earned">成立 ${escapeHtml(name)}</span>`),
-    ...reaches.map((item) => {
-      const need = item.missingIds.length === 1 ? cardLabel(item.missingIds[0]) : item.noun ? `${item.noun}1枚` : "候補札1枚";
-      return `<span class="yaku-status-chip reach">リーチ ${item.name} → ${escapeHtml(need)}</span>`;
-    })
+    ...reaches.map((item) => `<span class="yaku-status-chip reach">リーチ ${escapeHtml(item.name)}</span>`)
   ];
   if (!yakuChips.length && progress.length) {
     const next = progress[0];
@@ -1629,20 +1615,23 @@ function renderCapturedSummary(seat) {
 
 function renderTurnBanner(self) {
   let text = "";
-  if (state.phase === "select") {
+  const turnActor = Number.isInteger(state.pending?.actorSeat) ? state.pending.actorSeat : state.currentPlayer;
+  const opponentTurn = ["play", "select", "capture", "draw", "drawReady", "drawMoving", "yakuReveal", "koi"].includes(state.phase)
+    && turnActor !== self;
+  if (opponentTurn) text = "相手の番";
+  else if (state.phase === "select") {
     const pendingCard = CARD_MAP.get(state.pending?.cardId);
-    text = state.pending?.actorSeat === self ? `${pendingCard?.monthName || "同じ月"}に合わせる札を選ぶ` : `${state.players[state.currentPlayer]}が選んでいます`;
+    text = `${pendingCard?.monthName || "同じ月"}に合わせる札を選ぶ`;
   }
-  else if (state.phase === "capture") text = state.pending?.actorSeat === self ? "取札へ運んでいます" : `${state.players[state.pending?.actorSeat] || "相手"}が札を取っています`;
-  else if (state.phase === "draw") text = state.pending?.actorSeat === self ? "山札をめくっています" : `${state.players[state.currentPlayer]}が山札をめくっています`;
+  else if (state.phase === "capture") text = "あなたの番";
+  else if (state.phase === "draw") text = "山札をめくっています";
   else if (state.phase === "drawReady") {
     const matches = state.pending?.matches || [];
-    if (state.pending?.actorSeat !== self) text = `${state.players[state.pending?.actorSeat] || "相手"}がめくった札を確認中`;
-    else text = drawReadyPrompt(matches.length);
+    text = drawReadyPrompt(matches.length);
   }
   else if (state.phase === "drawMoving") text = "めくった札を場へ運んでいます";
   else if (state.phase === "yakuReveal") text = `${state.players[state.pending?.actorSeat] || "プレイヤー"}の役が成立`;
-  else if (state.phase === "koi") text = state.pending?.actorSeat === self ? "こいこいか上がりを選ぶ" : `${state.players[state.pending?.actorSeat]}が選んでいます`;
+  else if (state.phase === "koi") text = "こいこいか上がりを選ぶ";
   else if (state.phase === "decisionReveal") text = state.pending?.choice === "koi" ? "こいこい" : "上がり";
   else if (state.phase === "roundEnd") text = "この局は終了";
   else if (state.phase === "matchEnd") text = "対局終了";

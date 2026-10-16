@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0d0b08" />
     <title>花札 こいこい</title>
-    <link rel="stylesheet" href="style.css?v=24" />
+    <link rel="stylesheet" href="style.css?v=25" />
     <script src="https://cdn.gravity.place/fe/sdk/index-1.0.2.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
   </head>
@@ -92,20 +92,19 @@
             <div><strong id="opponentName">相手</strong><small id="opponentCaptured">取札 0枚</small></div>
           </div>
           <div class="card-row backs" id="opponentHand"></div>
-          <div class="board-captures board-captures-opponent" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="captureDialog" aria-label="相手の取札。タップして一覧を開く">
-            <div class="board-captures-head"><span>相手の取札</span><span class="board-captures-tools"><span class="captured-summary" id="opponentCapturedSummary"></span><span class="capture-expand-hint" aria-hidden="true">一覧</span></span></div>
+          <div class="board-captures board-captures-opponent" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="captureDialog" aria-label="相手の取札。タップしてすべて表示">
+            <div class="board-captures-head"><span>相手の取札</span></div>
             <div class="captured-board-rail" id="opponentCapturedRail"></div>
           </div>
         </section>
 
         <section class="table-zone">
-          <div class="round-marker"><strong id="monthLabel">一月</strong><span id="roundProgress">1 / 12局</span><span id="deckCount">残り24枚</span></div>
+          <div class="round-marker"><strong id="monthLabel">一月</strong><span id="roundProgress">1 / 12局</span></div>
           <div class="play-surface">
             <div class="field-grid" id="fieldCards" aria-label="場札"></div>
             <aside class="deck-slot" aria-label="山札">
-              <div class="deck-pile" id="deckPile" role="img" aria-label="山札 残り24枚">
+              <div class="deck-pile" id="deckPile" role="img" aria-label="山札">
                 <span class="deck-card" aria-hidden="true"></span>
-                <b id="deckPileCount">24</b>
               </div>
               <span class="deck-label" id="deckLabel">山札</span>
               <div class="drawn-card-preview hidden" id="drawnCardPreview" aria-live="polite"></div>
@@ -115,10 +114,9 @@
         </section>
 
         <section class="player-zone" aria-label="自分の手札">
-          <div class="board-captures board-captures-self" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="captureDialog" aria-label="自分の取札と役の進み。タップして一覧を開く">
+          <div class="board-captures board-captures-self" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="captureDialog" aria-label="自分の取札と役の進み。タップしてすべて表示">
             <div class="board-captures-head">
               <span class="board-captures-owner">自分の取札 <b id="captureTotal">0</b></span>
-              <span class="board-captures-tools"><span class="captured-summary" id="capturedSummary"></span><span class="capture-expand-hint" aria-hidden="true">一覧</span></span>
             </div>
             <div class="captured-board-rail" id="capturedBoardRail"></div>
             <div class="capture-yaku-strip" id="captureYakuStrip" aria-live="polite">札を取ると役の進みを表示</div>
@@ -175,7 +173,7 @@
     </dialog>
 
     <script src="cards.js?v=3"></script>
-    <script src="app.js?v=26"></script>
+    <script src="app.js?v=27"></script>
     <script src="online.js?v=4"></script>
   </body>
 </html>
