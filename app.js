@@ -8,15 +8,19 @@ const CAPTURE_FLIGHT_DURATION = 1500;
 const CAPTURE_FLIGHT_STAGGER = 130;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
 const PLAY_FLIGHT_DURATION = 900;
+const DRAW_TO_FIELD_DURATION = 1100;
 const MATCH_SLIDE_DURATION = 520;
 const PLAY_LAND_HOLD_DURATION = 560;
+const DRAW_TO_FIELD_HOLD_DURATION = 620;
 const MATCH_LAND_HOLD_DURATION = 480;
 const CAPTURE_LAND_HOLD_DURATION = 650;
 const REDUCED_DRAW_REVEAL_DURATION = 1700;
 const REDUCED_PLAY_FLIGHT_DURATION = 650;
+const REDUCED_DRAW_TO_FIELD_DURATION = 720;
 const REDUCED_CAPTURE_FLIGHT_DURATION = 900;
 const REDUCED_MATCH_SLIDE_DURATION = 420;
 const REDUCED_PLAY_LAND_HOLD_DURATION = 180;
+const REDUCED_DRAW_TO_FIELD_HOLD_DURATION = 220;
 const REDUCED_MATCH_LAND_HOLD_DURATION = 160;
 const REDUCED_CAPTURE_LAND_HOLD_DURATION = 220;
 const LAYOUT_REFLOW_DURATION = 480;
@@ -36,8 +40,10 @@ let drawTimer = null;
 let phaseTimer = null;
 let interactionLocked = false;
 let interactionUnlockTimer = null;
+let selectedHandCardId = null;
 const captureFlightIds = new Set();
 const motionOrigins = new Map();
+const drawFlightClones = new Map();
 let remoteStateQueue = Promise.resolve();
 let remoteDrawStartedAt = 0;
 
@@ -125,8 +131,11 @@ function shuffle(items) {
 function dealRound() {
   clearTimeout(drawTimer);
   clearTimeout(phaseTimer);
+  selectedHandCardId = null;
   motionOrigins.clear();
   captureFlightIds.clear();
+  drawFlightClones.forEach((element) => element.remove());
+  drawFlightClones.clear();
   let deck;
   let hands;
   let field;
@@ -317,6 +326,7 @@ function animateCapturedCards(actorSeat, ids) {
       height: `${source.height}px`
     });
     document.body.append(clone);
+    clearDrawFlightClone(id);
     const sourceX = source.left + source.width / 2;
     const sourceY = source.top + source.height / 2;
     const dx = target.x - sourceX;
@@ -435,11 +445,37 @@ function drawCard(actorSeat) {
   state.pending = { actorSeat, drawnCard: drawn };
   persistAndRender();
   clearTimeout(drawTimer);
-  drawTimer = window.setTimeout(async () => {
+  drawTimer = window.setTimeout(() => {
     if (state.phase !== "draw" || state.pending?.drawnCard !== drawn || state.pending?.actorSeat !== actorSeat) return;
-    state.pending = null;
-    await beginResolve(drawn, "draw", actorSeat);
+    const month = CARD_MAP.get(drawn)?.month;
+    const matches = state.field.filter((id) => CARD_MAP.get(id)?.month === month);
+    state.phase = "drawReady";
+    state.pending = { actorSeat, drawnCard: drawn, matches };
+    persistAndRender();
+    if (mode === "solo" && actorSeat === 1) {
+      aiTimer = window.setTimeout(() => resolveDraw(matches.length === 2 ? matches[0] : null, actorSeat), 1050);
+    }
   }, drawRevealDuration());
+}
+
+async function resolveDraw(fieldCardId, actorSeat = localSeat(), options = {}) {
+  if (state.phase !== "drawReady" || !state.pending || state.pending.actorSeat !== actorSeat) return;
+  const drawnCard = state.pending.drawnCard;
+  const matches = [...(state.pending.matches || [])].filter((id) => state.field.includes(id));
+  if (matches.length === 2 && !matches.includes(fieldCardId)) return;
+  const chosenMatch = matches.length === 2 ? fieldCardId : matches.length === 1 ? matches[0] : null;
+  state.phase = "drawMoving";
+  if (!options.preAnimated) await animateDrawnCardToField(drawnCard, chosenMatch, { keepAtTarget: true });
+  if (state.phase !== "drawMoving" || state.pending?.drawnCard !== drawnCard || state.pending?.actorSeat !== actorSeat) return;
+  state.pending = null;
+  if (matches.length === 3) {
+    state.field = state.field.filter((id) => !matches.includes(id));
+    await captureCards(actorSeat, [drawnCard, ...matches]);
+  } else {
+    await resolveAgainstField(drawnCard, chosenMatch, actorSeat);
+  }
+  finishResolution(actorSeat);
+  clearDrawFlightClone(drawnCard);
 }
 
 function finishResolution(actorSeat) {
@@ -639,6 +675,28 @@ function clearCapturePreview() {
   els.field.querySelectorAll(".card.preview-match").forEach((element) => element.classList.remove("preview-match"));
 }
 
+function requiresTapConfirmation() {
+  return Boolean(window.matchMedia?.("(hover: none), (pointer: coarse), (max-width: 720px)").matches);
+}
+
+function updateHandSelection(cardId = null) {
+  selectedHandCardId = cardId;
+  els.hand.querySelectorAll(".card").forEach((element) => {
+    const selected = element.dataset.cardId === cardId;
+    element.classList.toggle("selected", selected);
+    element.setAttribute("aria-pressed", String(selected));
+  });
+  if (cardId) previewCaptureFor(cardId, true);
+  else clearCapturePreview();
+  renderTurnBanner(localSeat());
+}
+
+function clearDrawFlightClone(cardId) {
+  const clone = drawFlightClones.get(cardId);
+  clone?.remove();
+  drawFlightClones.delete(cardId);
+}
+
 function matchingFieldLandingPoint(elements) {
   if (!elements.length) return null;
   const rects = elements.map((element) => element.getBoundingClientRect());
@@ -646,6 +704,69 @@ function matchingFieldLandingPoint(elements) {
   const y = rects.reduce((sum, rect) => sum + rect.top + rect.height / 2, 0) / rects.length;
   const overlapOffset = rects.length === 1 ? rects[0].width * FIELD_OVERLAP_OFFSET_RATIO : 0;
   return { x: x + overlapOffset, y: y + overlapOffset };
+}
+
+async function animateDrawnCardToField(cardId, fieldCardId = null, options = {}) {
+  const sourceElement = els.drawnCardPreview.querySelector(`[data-card-id="${cardId}"]`);
+  const sourceRect = sourceElement?.getBoundingClientRect();
+  if (!sourceRect) return;
+  const month = CARD_MAP.get(cardId)?.month;
+  const allMatches = [...els.field.querySelectorAll(".card")].filter((element) => Number(element.dataset.month) === month);
+  const selectedMatch = fieldCardId ? els.field.querySelector(`[data-card-id="${fieldCardId}"]`) : null;
+  const landingMatches = selectedMatch ? [selectedMatch] : allMatches;
+  const fallbackRect = els.field.getBoundingClientRect();
+  const matchingLanding = matchingFieldLandingPoint(landingMatches);
+  const placement = allMatches.length ? null : nextFieldPlacementPoint();
+  const targetX = matchingLanding?.x ?? placement?.x ?? fallbackRect.left + fallbackRect.width / 2;
+  const targetY = matchingLanding?.y ?? placement?.y ?? fallbackRect.top + fallbackRect.height / 2;
+  const targetRect = cardSizedRect(targetX, targetY, sourceRect.width, sourceRect.height);
+  motionOrigins.set(cardId, targetRect);
+
+  clearDrawFlightClone(cardId);
+  const clone = sourceElement.cloneNode(true);
+  clone.removeAttribute("id");
+  clone.setAttribute("aria-hidden", "true");
+  clone.className = "card card-flight drawn-flight";
+  Object.assign(clone.style, {
+    left: `${sourceRect.left}px`,
+    top: `${sourceRect.top}px`,
+    width: `${sourceRect.width}px`,
+    height: `${sourceRect.height}px`
+  });
+  document.body.append(clone);
+  sourceElement.classList.add("committed");
+
+  const dx = targetRect.left - sourceRect.left;
+  const dy = targetRect.top - sourceRect.top;
+  const arc = Math.min(26, Math.max(14, Math.abs(dx) * .16));
+  const reducedMotion = prefersReducedMotion();
+  const animation = clone.animate(reducedMotion
+    ? [
+      { transform: "translate3d(0, 0, 0) scale(1)" },
+      { transform: `translate3d(${dx}px, ${dy}px, 0) scale(1)` }
+    ]
+    : [
+      { transform: "translate3d(0, 0, 0) rotate(0deg) scale(1)", filter: "brightness(1.08)" },
+      { offset: .38, transform: `translate3d(${dx * .3}px, ${dy * .24 - arc}px, 0) rotate(-1.2deg) scale(1.035)`, filter: "brightness(1.18)" },
+      { offset: .82, transform: `translate3d(${dx * .88}px, ${dy * .84 - 7}px, 0) rotate(.45deg) scale(1.02)`, filter: "brightness(1.12)" },
+      { transform: `translate3d(${dx}px, ${dy}px, 0) rotate(0deg) scale(1)`, filter: "brightness(1)" }
+    ], {
+      duration: reducedMotion ? REDUCED_DRAW_TO_FIELD_DURATION : DRAW_TO_FIELD_DURATION,
+      easing: "cubic-bezier(.16, 1, .3, 1)",
+      fill: "forwards"
+    });
+  await animation.finished.catch(() => {});
+  animation.cancel();
+  Object.assign(clone.style, {
+    left: `${targetRect.left}px`,
+    top: `${targetRect.top}px`,
+    width: `${targetRect.width}px`,
+    height: `${targetRect.height}px`,
+    transform: "none"
+  });
+  await waitForMotion(reducedMotion ? REDUCED_DRAW_TO_FIELD_HOLD_DURATION : DRAW_TO_FIELD_HOLD_DURATION);
+  if (options.keepAtTarget) drawFlightClones.set(cardId, clone);
+  else clone.remove();
 }
 
 async function animatePlayedCard(sourceElement, cardId, options = {}) {
@@ -810,6 +931,11 @@ async function animatePendingCardToMatch(cardId, fieldCardId) {
 
 async function handleHandClick(cardId, sourceElement) {
   if (!isLocalTurn() || interactionLocked) return;
+  if (requiresTapConfirmation() && selectedHandCardId !== cardId) {
+    updateHandSelection(cardId);
+    return;
+  }
+  selectedHandCardId = null;
   interactionLocked = true;
   const sendsOnline = Boolean(window.TierOnline?.shouldSendAction());
   previewCaptureFor(cardId, true);
@@ -832,6 +958,36 @@ async function handleMatchClick(cardId, sourceElement) {
     scheduleInteractionUnlock(6000);
   } else await chooseMatch(cardId, localSeat(), { preAnimated: true });
   if (!sendsOnline) scheduleInteractionUnlock(130);
+}
+
+async function handleDrawConfirm(fieldCardId = null) {
+  if (state.phase !== "drawReady" || state.pending?.actorSeat !== localSeat() || interactionLocked) return;
+  const matches = state.pending.matches || [];
+  if (matches.length === 2 && !matches.includes(fieldCardId)) return;
+  const targetId = matches.length === 2 ? fieldCardId : matches.length === 1 ? matches[0] : null;
+  const drawnCard = state.pending.drawnCard;
+  interactionLocked = true;
+  const sendsOnline = Boolean(window.TierOnline?.shouldSendAction());
+  await animateDrawnCardToField(drawnCard, targetId, { keepAtTarget: true });
+  if (sendsOnline) {
+    window.TierOnline.sendAction({ type: "drawConfirm", cardId: fieldCardId, playerName: localPlayerName });
+    scheduleInteractionUnlock(6000, () => {
+      clearDrawFlightClone(drawnCard);
+      els.drawnCardPreview.querySelector(`[data-card-id="${drawnCard}"]`)?.classList.remove("committed");
+    });
+  } else await resolveDraw(fieldCardId, localSeat(), { preAnimated: true });
+  if (!sendsOnline) scheduleInteractionUnlock(130);
+}
+
+function handleGameTap(event) {
+  if (selectedHandCardId && !event.target.closest("#playerHand .card")) updateHandSelection(null);
+}
+
+function handleTableTap(event) {
+  if (state.phase !== "drawReady" || state.pending?.actorSeat !== localSeat()) return;
+  if ((state.pending.matches || []).length === 2) return;
+  if (event.target.closest("button, [role='button']")) return;
+  handleDrawConfirm();
 }
 
 function scheduleInteractionUnlock(delay, onFallback) {
@@ -1191,6 +1347,13 @@ function nextFieldPlacementPoint() {
   };
 }
 
+function drawReadyPrompt(matchCount) {
+  if (matchCount === 1) return "画面をタップして札を取る";
+  if (matchCount === 2) return "取る場札を一枚選ぶ";
+  if (matchCount === 3) return "画面をタップして三枚とも取る";
+  return "画面をタップして場へ出す";
+}
+
 function renderDeck() {
   const count = state.deck.length;
   document.querySelector("#deckPileCount").textContent = count;
@@ -1198,34 +1361,27 @@ function renderDeck() {
   els.deckPile.classList.toggle("empty", count === 0);
   els.deckPile.classList.toggle("drawing", state.phase === "draw");
   els.drawnCardPreview.replaceChildren();
-  const drawnId = state.phase === "draw" ? state.pending?.drawnCard : null;
+  const drawPhase = state.phase === "draw" || state.phase === "drawReady" || state.phase === "drawMoving";
+  const drawnId = drawPhase ? state.pending?.drawnCard : null;
   if (!drawnId || !CARD_MAP.has(drawnId)) {
     document.querySelector("#deckLabel").textContent = "山札";
     document.querySelector("#deckLabel").classList.remove("revealed");
     els.drawnCardPreview.classList.add("hidden");
+    els.drawnCardPreview.classList.remove("revealing", "ready");
     return;
   }
   const revealed = createCardElement(drawnId, { drawn: true });
   els.drawnCardPreview.append(revealed);
-  els.drawnCardPreview.setAttribute("aria-label", `山札から${cardLabel(drawnId)}をめくりました`);
+  const matches = state.pending?.matches || [];
+  const instruction = state.phase === "drawReady" && state.pending?.actorSeat === localSeat()
+    ? `。${drawReadyPrompt(matches.length)}操作です`
+    : "";
+  els.drawnCardPreview.setAttribute("aria-label", `山札から${cardLabel(drawnId)}をめくりました${instruction}`);
   document.querySelector("#deckLabel").textContent = cardLabel(drawnId);
   document.querySelector("#deckLabel").classList.add("revealed");
   els.drawnCardPreview.classList.remove("hidden");
-  const month = CARD_MAP.get(drawnId)?.month;
-  const matches = [...els.field.querySelectorAll(".card")].filter((element) => Number(element.dataset.month) === month);
-  const fieldRect = els.field.getBoundingClientRect();
-  const deckRect = els.deckPile.getBoundingClientRect();
-  const matchingLanding = matchingFieldLandingPoint(matches);
-  const placement = matches.length ? null : nextFieldPlacementPoint();
-  const resolvedTargetX = matchingLanding?.x ?? placement?.x ?? fieldRect.left + fieldRect.width / 2;
-  const resolvedTargetY = matchingLanding?.y ?? placement?.y ?? fieldRect.top + fieldRect.height / 2;
-  const sourceX = deckRect.left + deckRect.width / 2;
-  const sourceY = deckRect.top + deckRect.height / 2;
-  els.drawnCardPreview.style.setProperty("--draw-x", `${resolvedTargetX - sourceX}px`);
-  els.drawnCardPreview.style.setProperty("--draw-y", `${resolvedTargetY - sourceY}px`);
-  const width = revealed.offsetWidth || deckRect.width;
-  const height = revealed.offsetHeight || deckRect.height;
-  motionOrigins.set(drawnId, cardSizedRect(resolvedTargetX, resolvedTargetY, width, height));
+  els.drawnCardPreview.classList.toggle("revealing", state.phase === "draw");
+  els.drawnCardPreview.classList.toggle("ready", state.phase === "drawReady");
 }
 
 function render() {
@@ -1263,13 +1419,18 @@ function render() {
 
   const canPlay = isLocalTurn();
   const localHand = visibleHand();
+  if (!canPlay || !localHand.includes(selectedHandCardId)) selectedHandCardId = null;
   const playableMonths = new Set(canPlay ? localHand.map((id) => CARD_MAP.get(id)?.month) : []);
   els.field.replaceChildren();
   state.field.forEach((id) => {
-    const matchable = state.phase === "select" && state.pending?.matches?.includes(id) && state.pending.actorSeat === self;
-    const takeable = canPlay && playableMonths.has(CARD_MAP.get(id)?.month);
+    const handMatchable = state.phase === "select" && state.pending?.matches?.includes(id) && state.pending.actorSeat === self;
+    const drawMatchable = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.length === 2 && state.pending.matches.includes(id);
+    const drawTarget = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.includes(id);
+    const matchable = handMatchable || drawMatchable;
+    const takeable = (canPlay && playableMonths.has(CARD_MAP.get(id)?.month)) || drawTarget;
     const element = createCardElement(id, { button: matchable, matchable, takeable });
-    if (matchable) element.addEventListener("click", () => handleMatchClick(id, element));
+    if (handMatchable) element.addEventListener("click", () => handleMatchClick(id, element));
+    else if (drawMatchable) element.addEventListener("click", () => handleDrawConfirm(id));
     els.field.append(element);
   });
   animateCardReflow(els.field.querySelectorAll(".card"), previousFieldRects, (element) => element.dataset.cardId);
@@ -1279,12 +1440,19 @@ function render() {
     const month = CARD_MAP.get(id)?.month;
     const canCapture = canPlay && state.field.some((fieldId) => CARD_MAP.get(fieldId)?.month === month);
     const element = createCardElement(id, { button: canPlay, playable: canPlay, canCapture });
+    const selected = canPlay && selectedHandCardId === id;
+    element.classList.toggle("selected", selected);
+    if (canPlay) element.setAttribute("aria-pressed", String(selected));
     if (canPlay) {
       element.addEventListener("pointerenter", () => previewCaptureFor(id, true));
-      element.addEventListener("pointerleave", clearCapturePreview);
+      element.addEventListener("pointerleave", () => {
+        if (selectedHandCardId !== id) clearCapturePreview();
+      });
       element.addEventListener("pointerdown", () => previewCaptureFor(id, true));
       element.addEventListener("focus", () => previewCaptureFor(id, true));
-      element.addEventListener("blur", clearCapturePreview);
+      element.addEventListener("blur", () => {
+        if (selectedHandCardId !== id) clearCapturePreview();
+      });
       element.addEventListener("click", () => handleHandClick(id, element));
     }
     els.hand.append(element);
@@ -1337,15 +1505,28 @@ function renderTurnBanner(self) {
   }
   else if (state.phase === "capture") text = state.pending?.actorSeat === self ? "取札へ運んでいます" : `${state.players[state.pending?.actorSeat] || "相手"}が札を取っています`;
   else if (state.phase === "draw") text = state.pending?.actorSeat === self ? "山札をめくっています" : `${state.players[state.currentPlayer]}が山札をめくっています`;
+  else if (state.phase === "drawReady") {
+    const matches = state.pending?.matches || [];
+    if (state.pending?.actorSeat !== self) text = `${state.players[state.pending?.actorSeat] || "相手"}がめくった札を確認中`;
+    else text = drawReadyPrompt(matches.length);
+  }
+  else if (state.phase === "drawMoving") text = "めくった札を場へ運んでいます";
   else if (state.phase === "yakuReveal") text = `${state.players[state.pending?.actorSeat] || "プレイヤー"}の役が成立`;
   else if (state.phase === "koi") text = state.pending?.actorSeat === self ? "こいこいか上がりを選ぶ" : `${state.players[state.pending?.actorSeat]}が選んでいます`;
   else if (state.phase === "decisionReveal") text = state.pending?.choice === "koi" ? "こいこい" : "上がり";
   else if (state.phase === "roundEnd") text = "この局は終了";
   else if (state.phase === "matchEnd") text = "対局終了";
-  else text = state.currentPlayer === self ? "あなたの番" : `${state.players[state.currentPlayer]}の番`;
+  else text = state.currentPlayer === self ? (selectedHandCardId ? "もう一度タップして札を出す" : "あなたの番") : `${state.players[state.currentPlayer]}の番`;
   els.turnBanner.textContent = text;
-  const interactive = (state.phase === "play" && state.currentPlayer === self) || (state.phase === "select" && state.pending?.actorSeat === self);
+  const interactive = (state.phase === "play" && state.currentPlayer === self)
+    || (state.phase === "select" && state.pending?.actorSeat === self)
+    || (state.phase === "drawReady" && state.pending?.actorSeat === self);
   els.turnBanner.classList.toggle("waiting", !interactive);
+  const confirmsDraw = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.length !== 2;
+  els.turnBanner.classList.toggle("tap-prompt", confirmsDraw);
+  els.turnBanner.tabIndex = confirmsDraw ? 0 : -1;
+  if (confirmsDraw) els.turnBanner.setAttribute("role", "button");
+  else els.turnBanner.removeAttribute("role");
   els.turnBanner.classList.remove("state-change");
   void els.turnBanner.offsetWidth;
   els.turnBanner.classList.add("state-change");
@@ -1563,6 +1744,21 @@ function inferPlayedCard(previousState, nextState) {
   return playedCard ? { cardId: playedCard, actorSeat } : null;
 }
 
+function inferDrawnCardMove(previousState, nextState) {
+  if (!previousState?.active || (previousState.phase !== "drawReady" && previousState.phase !== "drawMoving")) return null;
+  const cardId = previousState.pending?.drawnCard;
+  const actorSeat = previousState.pending?.actorSeat;
+  if (!cardId || !Number.isInteger(actorSeat)) return null;
+  const samePendingDraw = (nextState.phase === "draw" || nextState.phase === "drawReady" || nextState.phase === "drawMoving")
+    && nextState.pending?.drawnCard === cardId;
+  if (samePendingDraw) return null;
+  const nextField = new Set(nextState.field || []);
+  const removedMatches = (previousState.field || []).filter((id) => {
+    return !nextField.has(id) && CARD_MAP.get(id)?.month === CARD_MAP.get(cardId)?.month;
+  });
+  return { cardId, actorSeat, fieldCardId: removedMatches.length === 1 ? removedMatches[0] : null };
+}
+
 async function waitForRemoteDrawToLand(nextState) {
   const sameDraw = state.phase === "draw"
     && nextState.phase === "draw"
@@ -1581,6 +1777,10 @@ async function applyOnlineState(nextState) {
   if (played && !motionOrigins.has(played.cardId)) {
     await animatePlayedCardForSeat(played.cardId, played.actorSeat);
   }
+  const drawnMove = inferDrawnCardMove(previousState, nextState);
+  if (drawnMove && !motionOrigins.has(drawnMove.cardId)) {
+    await animateDrawnCardToField(drawnMove.cardId, drawnMove.fieldCardId, { keepAtTarget: true });
+  }
   const previousCaptures = state.captures || [[], []];
   const nextCaptures = nextState.captures || [[], []];
   const addedBySeat = [0, 1].map((seat) => {
@@ -1593,6 +1793,9 @@ async function applyOnlineState(nextState) {
   state.matchLength = normalizeMatchLength(state.matchLength);
   render();
   state.field.forEach((id) => motionOrigins.delete(id));
+  drawFlightClones.forEach((_element, id) => {
+    if (!addedBySeat.some((ids) => ids.includes(id))) clearDrawFlightClone(id);
+  });
   applyingRemoteState = false;
   remoteDrawStartedAt = state.phase === "draw" ? motionClock() : 0;
   releaseInteractionLock();
@@ -1626,6 +1829,7 @@ function applyRemoteAction(action) {
   const seat = seatForPlayer(action.playerName);
   if (action.type === "play" && seat >= 0) playCard(action.cardId, seat);
   if (action.type === "match" && seat >= 0) chooseMatch(action.cardId, seat);
+  if (action.type === "drawConfirm" && seat >= 0) resolveDraw(action.cardId || null, seat);
   if (action.type === "koi" && seat >= 0) chooseKoi(action.choice, seat);
   if (action.type === "nextRound" && state.phase === "roundEnd") nextRound();
   if (action.type === "rematch" && state.phase === "matchEnd") rematch();
@@ -1652,6 +1856,17 @@ window.TierGame = window.HanafudaGame;
 
 document.querySelector("#soloButton").addEventListener("click", startSolo);
 document.querySelector("#startOnlineButton").addEventListener("click", startOnlineGame);
+els.game.addEventListener("click", handleGameTap);
+document.querySelector(".table-zone").addEventListener("click", handleTableTap);
+els.turnBanner.addEventListener("click", () => {
+  if (state.phase === "drawReady" && state.pending?.actorSeat === localSeat() && state.pending?.matches?.length !== 2) handleDrawConfirm();
+});
+els.turnBanner.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  if (state.phase !== "drawReady" || state.pending?.actorSeat !== localSeat() || state.pending?.matches?.length === 2) return;
+  event.preventDefault();
+  handleDrawConfirm();
+});
 bindCaptureArea(".board-captures-self", () => localSeat());
 bindCaptureArea(".board-captures-opponent", () => 1 - localSeat());
 document.querySelectorAll('input[name="onlineMatchLength"]').forEach((input) => input.addEventListener("change", () => {
@@ -1682,6 +1897,9 @@ document.querySelector("#backLobbyButton").addEventListener("click", () => {
   clearTimeout(aiTimer);
   clearTimeout(drawTimer);
   clearTimeout(phaseTimer);
+  selectedHandCardId = null;
+  drawFlightClones.forEach((element) => element.remove());
+  drawFlightClones.clear();
   mode = "lobby";
   state = createInitialState();
   render();

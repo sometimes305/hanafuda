@@ -205,21 +205,24 @@ input:focus, select:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 
 .deck-pile.drawing { animation: deckPulse 3000ms cubic-bezier(.16, 1, .3, 1); }
 .deck-label { color: var(--ivory-dim); font-size: 8px; letter-spacing: .08em; }
 .deck-label.revealed { max-width: 90px; color: var(--gold-bright); font-weight: 700; text-align: center; white-space: nowrap; }
-.drawn-card-preview { --draw-x: calc(0px - var(--card-w) - 10px); --draw-y: 0px; width: var(--card-w); height: var(--card-h); position: absolute; left: 0; top: 50%; z-index: 6; transform-origin: center; animation: deckReveal 3000ms linear both; pointer-events: none; }
+.drawn-card-preview { width: var(--card-w); height: var(--card-h); position: absolute; left: 0; top: 50%; z-index: 6; transform: translate3d(0, calc(-50% - 8px), 0) rotate(-1.5deg) scale(1.03); transform-origin: center; pointer-events: none; }
+.drawn-card-preview.revealing { animation: deckTurnOver 3000ms linear both; }
+.drawn-card-preview.ready { filter: brightness(1.08); }
 .drawn-card-preview .card { width: 100%; height: 100%; box-shadow: 0 0 0 2px var(--gold-bright), 0 5px 8px #000b; }
+.drawn-card-preview .card.committed { opacity: 0; }
 @keyframes deckPulse { 45% { transform: translateY(-3px) rotate(-1deg); filter: drop-shadow(0 7px 5px #000d) brightness(1.12); } }
-@keyframes deckReveal {
+@keyframes deckTurnOver {
   0% { transform: translate(0, -50%) rotateY(90deg) scale(.92); opacity: 0; filter: brightness(.65); animation-timing-function: cubic-bezier(.16, 1, .3, 1); }
-  24% { transform: translate3d(0, calc(-50% - 8px), 0) rotateY(0) rotate(-1.5deg) scale(1.03); opacity: 1; filter: brightness(1.08); animation-timing-function: linear; }
-  50% { transform: translate3d(0, calc(-50% - 8px), 0) rotateY(0) rotate(-1.5deg) scale(1.03); opacity: 1; filter: brightness(1.08); animation-timing-function: cubic-bezier(.16, 1, .3, 1); }
-  78% { transform: translate3d(var(--draw-x), calc(-50% + var(--draw-y) - 9px), 0) rotateY(0) rotate(.4deg) scale(1.045); opacity: 1; filter: brightness(1.14); animation-timing-function: cubic-bezier(.16, 1, .3, 1); }
-  84% { transform: translate3d(var(--draw-x), calc(-50% + var(--draw-y)), 0) rotateY(0) rotate(0) scale(1); opacity: 1; filter: brightness(1); animation-timing-function: linear; }
-  100% { transform: translate3d(var(--draw-x), calc(-50% + var(--draw-y)), 0) rotateY(0) rotate(0) scale(1); opacity: 1; filter: brightness(1); }
+  34% { transform: translate3d(0, calc(-50% - 4px), 0) rotateY(54deg) rotate(-.6deg) scale(.97); opacity: .92; filter: brightness(.84); animation-timing-function: cubic-bezier(.16, 1, .3, 1); }
+  62% { transform: translate3d(0, calc(-50% - 9px), 0) rotateY(0) rotate(-1.5deg) scale(1.04); opacity: 1; filter: brightness(1.16); animation-timing-function: ease-out; }
+  100% { transform: translate3d(0, calc(-50% - 8px), 0) rotateY(0) rotate(-1.5deg) scale(1.03); opacity: 1; filter: brightness(1.08); }
 }
 .turn-banner { justify-self: center; min-width: 180px; text-align: center; padding: 7px 22px 8px; margin-top: 6px; background: linear-gradient(180deg, #29463af2, #142b22f2); border: 1px solid var(--gold); box-shadow: inset 0 0 0 2px #0f1d17, 0 5px 16px #0008; color: var(--ivory); font: 700 15px "Kaisei Decol", serif; letter-spacing: .12em; clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 7px 100%, 0 50%); }
 .turn-banner.waiting { background: #211d17e8; color: var(--ivory-dim); border-color: #6d5a3c; }
 .turn-banner.state-change { animation: turnState 300ms cubic-bezier(.25, 1, .5, 1); }
+.turn-banner.tap-prompt { cursor: pointer; box-shadow: inset 0 0 0 2px #0f1d17, 0 5px 16px #0008, 0 0 18px #d6aa4b45; animation: tapPrompt 1500ms ease-in-out infinite alternate; }
 @keyframes turnState { from { transform: scale(.97); filter: brightness(.78); } }
+@keyframes tapPrompt { to { filter: brightness(1.18); transform: translateY(-1px); } }
 
 .player-zone { padding: 4px 10px max(12px, env(safe-area-inset-bottom)); background: linear-gradient(180deg, transparent, #090806d9 25%); position: relative; }
 .board-captures {
@@ -290,6 +293,7 @@ input:focus, select:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 
 .card-row.hand .card:nth-last-child(2) { transform: rotate(4deg) translateY(2px); }
 .card-row.hand .card:nth-last-child(1) { transform: rotate(6deg) translateY(5px); }
 .card-row.hand .card.playable:hover, .card-row.hand .card.playable:focus-visible, .card-row.hand .card.selected { transform: translateY(-11px) scale(1.04); z-index: 5; box-shadow: 0 0 0 2px var(--gold-bright), 0 0 20px #e8bd5eaa; }
+.card-row.hand .card.selected { animation: handConfirm 900ms ease-in-out infinite alternate; }
 .self-meta { display: flex; justify-content: center; align-items: center; gap: 7px; margin-top: 5px; font-size: 11px; }
 .self-avatar { width: 22px; height: 22px; font-size: 9px; }
 
@@ -326,6 +330,7 @@ button.card { cursor: pointer; }
 .card-art { width: 100%; height: 100%; display: block; object-fit: fill; user-select: none; pointer-events: none; }
 .card.matchable { box-shadow: 0 0 0 2px var(--gold-bright), 0 0 18px #e9c35fbb; animation: matchInvite 1100ms cubic-bezier(.16, 1, .3, 1) both; }
 @keyframes matchInvite { from { transform: translateY(3px) scale(.96); filter: brightness(1.35); } }
+@keyframes handConfirm { to { filter: brightness(1.14); box-shadow: 0 0 0 3px var(--gold-bright), 0 0 24px #e8bd5ecc; } }
 
 .choice-overlay { position: fixed; inset: 0; z-index: 30; max-width: 520px; margin: auto; display: grid; place-items: center; overflow: hidden; padding: 24px; background: #060504d6; backdrop-filter: blur(6px); animation: choiceBackdropIn 900ms ease-out both; }
 .choice-overlay::before { content: ""; position: absolute; inset: -25%; background: radial-gradient(circle, #bc91402b, transparent 42%); opacity: .65; animation: backdropWash 1400ms cubic-bezier(.16, 1, .3, 1) both; pointer-events: none; }
@@ -527,13 +532,13 @@ button.card { cursor: pointer; }
     animation: none !important;
   }
   .deck-pile.drawing { animation-duration: 1700ms !important; }
-  .drawn-card-preview { animation-name: deckRevealReduced !important; animation-duration: 1700ms !important; }
+  .drawn-card-preview.revealing { animation-name: deckTurnOverReduced !important; animation-duration: 1700ms !important; }
+  .turn-banner.tap-prompt,
+  .card-row.hand .card.selected { animation: none !important; }
 }
 
-@keyframes deckRevealReduced {
+@keyframes deckTurnOverReduced {
   0% { transform: translate(0, -50%) scale(.98); opacity: .72; }
-  26% { transform: translate(0, -50%) scale(1); opacity: 1; }
-  44% { transform: translate(0, -50%) scale(1); opacity: 1; }
-  82% { transform: translate3d(var(--draw-x), calc(-50% + var(--draw-y)), 0) scale(1); opacity: 1; }
-  100% { transform: translate3d(var(--draw-x), calc(-50% + var(--draw-y)), 0) scale(1); opacity: 1; }
+  62% { transform: translate3d(0, calc(-50% - 8px), 0) scale(1.03); opacity: 1; }
+  100% { transform: translate3d(0, calc(-50% - 8px), 0) scale(1.03); opacity: 1; }
 }
