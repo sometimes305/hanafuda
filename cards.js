@@ -1,4 +1,12 @@
 (function () {
+  // Card paths must follow this script's origin, not the embedding document.
+  // Gravity serves its own HTML from cdn.gravity.place while loading this file
+  // from GitHub Pages, so document-relative image URLs otherwise point at a 404.
+  const scriptUrl = document.currentScript && document.currentScript.src
+    ? document.currentScript.src
+    : window.location.href;
+  const cardAssetBaseUrl = new URL("./assets/cards/", scriptUrl);
+
   const months = [
     { name: "松", color: "pine", cards: [["crane", "bright", "鶴"], ["poetry", "ribbon", "あ"], ["plain", "chaff", "松"], ["plain", "chaff", "松"]] },
     { name: "梅", color: "plum", cards: [["warbler", "animal", "鶯"], ["poetry", "ribbon", "あ"], ["plain", "chaff", "梅"], ["plain", "chaff", "梅"]] },
@@ -18,7 +26,7 @@
   months.forEach((month, monthIndex) => {
     month.cards.forEach(([key, type, glyph], cardIndex) => cards.push({
       id: `${monthIndex + 1}-${cardIndex + 1}`,
-      asset: `assets/cards/${monthIndex * 4 + cardIndex}.png`,
+      asset: new URL(`${monthIndex * 4 + cardIndex}.png`, cardAssetBaseUrl).href,
       month: monthIndex + 1,
       monthName: month.name,
       palette: month.color,
