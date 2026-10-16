@@ -3,16 +3,22 @@ const MONTH_NAMES = ["一月", "二月", "三月", "四月", "五月", "六月",
 const MATCH_LENGTHS = [3, 6, 12];
 const MATCH_LENGTH_LABELS = { 3: "三局", 6: "六局", 12: "十二局" };
 const CAPTURE_GROUPS = [["bright", "光"], ["animal", "たね"], ["ribbon", "短冊"], ["chaff", "かす"]];
-const DRAW_REVEAL_DURATION = 2400;
+const DRAW_REVEAL_DURATION = 3000;
 const CAPTURE_FLIGHT_DURATION = 1500;
 const CAPTURE_FLIGHT_STAGGER = 130;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
 const PLAY_FLIGHT_DURATION = 900;
 const MATCH_SLIDE_DURATION = 520;
-const REDUCED_DRAW_REVEAL_DURATION = 1300;
+const PLAY_LAND_HOLD_DURATION = 560;
+const MATCH_LAND_HOLD_DURATION = 480;
+const CAPTURE_LAND_HOLD_DURATION = 650;
+const REDUCED_DRAW_REVEAL_DURATION = 1700;
 const REDUCED_PLAY_FLIGHT_DURATION = 650;
 const REDUCED_CAPTURE_FLIGHT_DURATION = 900;
 const REDUCED_MATCH_SLIDE_DURATION = 420;
+const REDUCED_PLAY_LAND_HOLD_DURATION = 180;
+const REDUCED_MATCH_LAND_HOLD_DURATION = 160;
+const REDUCED_CAPTURE_LAND_HOLD_DURATION = 220;
 const LAYOUT_REFLOW_DURATION = 480;
 const REDUCED_LAYOUT_REFLOW_DURATION = 300;
 const CARD_MAP = new Map(window.HanafudaCards.cards.map((card) => [card.id, card]));
@@ -29,6 +35,7 @@ let toastTimer = null;
 let drawTimer = null;
 let phaseTimer = null;
 let interactionLocked = false;
+let interactionUnlockTimer = null;
 const captureFlightIds = new Set();
 const motionOrigins = new Map();
 let remoteStateQueue = Promise.resolve();
@@ -353,6 +360,7 @@ async function captureCards(actorSeat, ids) {
   state.pending = { actorSeat, capturedCards: [...ids] };
   persistAndRender();
   await captureMotion;
+  await waitForMotion(prefersReducedMotion() ? REDUCED_CAPTURE_LAND_HOLD_DURATION : CAPTURE_LAND_HOLD_DURATION);
 }
 
 async function playCard(cardId, actorSeat = localSeat()) {
@@ -691,8 +699,9 @@ async function animatePlayedCard(sourceElement, cardId, options = {}) {
     fill: "forwards"
   });
   await animation.finished.catch(() => {});
+  await waitForMotion(reducedMotion ? REDUCED_PLAY_LAND_HOLD_DURATION : PLAY_LAND_HOLD_DURATION);
   clone.remove();
-  sourceElement?.classList.remove("committed");
+  if (!options.keepSourceCommitted) sourceElement?.classList.remove("committed");
 }
 
 function sourceForPlayedCard(cardId, actorSeat) {
@@ -766,6 +775,7 @@ async function animatePendingCardToMatch(cardId, fieldCardId) {
   motionOrigins.set(cardId, targetRect);
   if (!pendingCard) {
     await waitForMotion(prefersReducedMotion() ? REDUCED_MATCH_SLIDE_DURATION : MATCH_SLIDE_DURATION);
+    await waitForMotion(prefersReducedMotion() ? REDUCED_MATCH_LAND_HOLD_DURATION : MATCH_LAND_HOLD_DURATION);
     return;
   }
   const dx = targetRect.left - sourceRect.left;
@@ -795,28 +805,48 @@ async function animatePendingCardToMatch(cardId, fieldCardId) {
     height: `${targetRect.height}px`,
     transform: "none"
   });
+  await waitForMotion(reducedMotion ? REDUCED_MATCH_LAND_HOLD_DURATION : MATCH_LAND_HOLD_DURATION);
 }
 
 async function handleHandClick(cardId, sourceElement) {
   if (!isLocalTurn() || interactionLocked) return;
   interactionLocked = true;
+  const sendsOnline = Boolean(window.TierOnline?.shouldSendAction());
   previewCaptureFor(cardId, true);
-  await animatePlayedCard(sourceElement, cardId);
+  await animatePlayedCard(sourceElement, cardId, { keepSourceCommitted: sendsOnline });
   clearCapturePreview();
-  if (window.TierOnline?.shouldSendAction()) {
+  if (sendsOnline) {
     window.TierOnline.sendAction({ type: "play", cardId, playerName: localPlayerName });
+    scheduleInteractionUnlock(6000, () => sourceElement.classList.remove("committed"));
   } else await playCard(cardId, localSeat());
-  window.setTimeout(() => { interactionLocked = false; }, window.TierOnline?.shouldSendAction() ? 950 : 160);
+  if (!sendsOnline) scheduleInteractionUnlock(160);
 }
 
 async function handleMatchClick(cardId, sourceElement) {
   if (state.phase !== "select" || state.pending?.actorSeat !== localSeat() || interactionLocked) return;
   interactionLocked = true;
+  const sendsOnline = Boolean(window.TierOnline?.shouldSendAction());
   await animatePendingCardToMatch(state.pending.cardId, cardId);
-  if (window.TierOnline?.shouldSendAction()) {
+  if (sendsOnline) {
     window.TierOnline.sendAction({ type: "match", cardId, playerName: localPlayerName });
+    scheduleInteractionUnlock(6000);
   } else await chooseMatch(cardId, localSeat(), { preAnimated: true });
-  window.setTimeout(() => { interactionLocked = false; }, window.TierOnline?.shouldSendAction() ? 760 : 130);
+  if (!sendsOnline) scheduleInteractionUnlock(130);
+}
+
+function scheduleInteractionUnlock(delay, onFallback) {
+  clearTimeout(interactionUnlockTimer);
+  interactionUnlockTimer = window.setTimeout(() => {
+    interactionLocked = false;
+    interactionUnlockTimer = null;
+    onFallback?.();
+  }, delay);
+}
+
+function releaseInteractionLock() {
+  clearTimeout(interactionUnlockTimer);
+  interactionUnlockTimer = null;
+  interactionLocked = false;
 }
 
 function handleKoi(choice) {
@@ -1565,7 +1595,11 @@ async function applyOnlineState(nextState) {
   state.field.forEach((id) => motionOrigins.delete(id));
   applyingRemoteState = false;
   remoteDrawStartedAt = state.phase === "draw" ? motionClock() : 0;
+  releaseInteractionLock();
   await captureMotion;
+  if (addedBySeat.some((ids) => ids.length)) {
+    await waitForMotion(prefersReducedMotion() ? REDUCED_CAPTURE_LAND_HOLD_DURATION : CAPTURE_LAND_HOLD_DURATION);
+  }
 }
 
 function importOnlineState(nextState) {
