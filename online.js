@@ -657,8 +657,20 @@
       return String(found.room_id || found.roomId || found.id || "");
     },
 
+    canUseDirectGravitySDK() {
+      try {
+        // The protocol loader adds a second iframe layer. AgentSDK may still be
+        // present inside the game frame there, but its promises never settle;
+        // room calls must be relayed to the parent loader with postMessage.
+        const isBehindProtocolLoader = window.self !== window.top && window.parent !== window.top;
+        return !isBehindProtocolLoader;
+      } catch {
+        return false;
+      }
+    },
+
     async callGravitySDK(action, params) {
-      if (action === "AgentSDK.user.getMyUserInfo" && window.AgentSDK?.user?.getMyUserInfo) {
+      if (this.canUseDirectGravitySDK() && action === "AgentSDK.user.getMyUserInfo" && window.AgentSDK?.user?.getMyUserInfo) {
         this.lastBridgeEvent = "AgentSDK.user.getMyUserInfo";
         return this.withSdkTimeout(window.AgentSDK.user.getMyUserInfo(), action);
       }
@@ -690,7 +702,7 @@
         exit: "exit"
       };
       const method = directMethods[action];
-      if (method && typeof window.AgentSDK?.room?.[method] === "function") {
+      if (this.canUseDirectGravitySDK() && method && typeof window.AgentSDK?.room?.[method] === "function") {
         this.lastBridgeEvent = `AgentSDK.room.${method}`;
         const result = method === "exit" || method === "getPublicRoomList"
           ? window.AgentSDK.room[method]()
@@ -789,7 +801,7 @@
 
     async initRoomIdInput() {
       try {
-        if (window.AgentSDK && window.AgentSDK.room && typeof window.AgentSDK.room.getRoomId === "function") {
+        if (this.canUseDirectGravitySDK() && window.AgentSDK && window.AgentSDK.room && typeof window.AgentSDK.room.getRoomId === "function") {
           const result = await window.AgentSDK.room.getRoomId();
           const roomId = this.extractRoomId(result);
           if (roomId) this.fillRoomId(roomId);
@@ -806,7 +818,7 @@
 
     registerReceiveMessage() {
       try {
-        if (window.AgentSDK && window.AgentSDK.room && typeof window.AgentSDK.room.receiveMessage === "function") {
+        if (this.canUseDirectGravitySDK() && window.AgentSDK && window.AgentSDK.room && typeof window.AgentSDK.room.receiveMessage === "function") {
           window.AgentSDK.room.receiveMessage((payload) => this.handleRoomEvent(payload));
         }
       } catch (error) {
