@@ -32,6 +32,7 @@
     },
 
     bindControls() {
+      this.removeLegacyNameInputs();
       const goCreateButton = document.querySelector("#goCreateRoomButton");
       const goJoinButton = document.querySelector("#goJoinRoomButton");
       const createButton = document.querySelector("#createRoomButton");
@@ -78,6 +79,14 @@
       this.refreshProfile();
       this.refreshStatus();
       this.renderRoomUi();
+    },
+
+    removeLegacyNameInputs() {
+      document.querySelectorAll("#username, #usernameJoin").forEach((input) => {
+        const field = input.closest("label, .field");
+        if (field) field.remove();
+        else input.remove();
+      });
     },
 
     showOnlineScreen(name) {
@@ -148,7 +157,7 @@
       document.body.dataset.role = this.online ? (this.host ? "host" : "guest") : "none";
       const panel = document.querySelector("#roomPanel");
       const roomId = document.querySelector("#activeRoomId");
-      if (panel) panel.classList.toggle("hidden", !this.online);
+      if (panel && !this.online) panel.classList.add("hidden");
       if (roomId) {
         const displayRoomId = this.roomId ? String(this.roomId) : "未入室";
         roomId.textContent = displayRoomId;
@@ -495,7 +504,7 @@
         this.startHostPeer(this.roomId);
         this.setParticipants([]);
         this.statusMessage = "";
-        this.refreshStatus();
+        this.showOnlineScreen("room");
         if (window.TierGame.refresh) window.TierGame.refresh();
       } catch (error) {
         console.warn("[HanafudaOnline] create room failed:", error);
@@ -526,7 +535,7 @@
         this.setParticipants(this.extractPlayers(joinResult));
         this.startGuestPeer(rid);
         this.statusMessage = "";
-        this.refreshStatus();
+        this.showOnlineScreen("room");
         if (window.TierGame.refresh) window.TierGame.refresh();
       } catch (error) {
         console.warn("[HanafudaOnline] join room failed:", error);

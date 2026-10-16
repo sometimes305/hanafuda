@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0d0b08" />
     <title>花札 こいこい</title>
-    <link rel="stylesheet" href="style.css?v=17" />
+    <link rel="stylesheet" href="style.css?v=18" />
     <script src="https://cdn.gravity.place/fe/sdk/index-1.0.2.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
   </head>
@@ -65,11 +65,13 @@
         </div>
 
         <p id="onlineStatus" class="online-status" aria-live="polite"></p>
-        <div id="roomPanel" class="room-panel hidden">
+        <div id="roomPanel" class="online-screen lobby-actions room-panel hidden" data-online-screen="room">
+          <div class="screen-title"><strong id="roomStateTitle">対局の準備</strong><button id="exitRoomButton" class="text-button danger" type="button">退出</button></div>
+          <p id="roomStateText" class="room-state-text">参加者を待っています</p>
           <div><small>ルームID</small><strong id="activeRoomId">未入室</strong></div>
           <div><small>対局</small><strong id="roomMatchLength">12局勝負</strong></div>
           <div><small>参加者</small><div id="participantList" class="participant-list"></div></div>
-          <div class="room-actions"><button id="startOnlineButton" class="button primary" type="button">対局を始める</button><button id="exitRoomButton" class="text-button danger" type="button">退出</button></div>
+          <div class="room-actions"><button id="startOnlineButton" class="button primary" type="button">対局を始める</button></div>
         </div>
       </section>
 
@@ -173,7 +175,7 @@
     </dialog>
 
     <script src="cards.js?v=2"></script>
-    <script src="app.js?v=16"></script>
-    <script src="online.js?v=2"></script>
+    <script src="app.js?v=17"></script>
+    <script src="online.js?v=3"></script>
   </body>
 </html>

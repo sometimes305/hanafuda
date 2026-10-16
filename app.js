@@ -1452,9 +1452,17 @@ function renderRoomStartState() {
   const connected = window.TierOnline.online;
   const host = window.TierOnline.host;
   const count = window.TierOnline.getGameParticipantNames().length;
+  const title = document.querySelector("#roomStateTitle");
+  const text = document.querySelector("#roomStateText");
   button.classList.toggle("hidden", !connected || !host);
   button.disabled = count < 2;
   button.textContent = count < 2 ? "参加者を待っています" : "対局を始める";
+  if (title) title.textContent = host ? (count < 2 ? "参加者を待っています" : "対局の準備完了") : "対局開始を待っています";
+  if (text) {
+    text.textContent = host
+      ? (count < 2 ? "もう一人が入室すると対局を始められます。" : "参加者がそろいました。局数を確認して対局を始めてください。")
+      : "ホストが対局を始めるまで、この画面でお待ちください。";
+  }
 }
 
 function persistAndRender() {
