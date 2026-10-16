@@ -3,26 +3,26 @@ const MONTH_NAMES = ["一月", "二月", "三月", "四月", "五月", "六月",
 const MATCH_LENGTHS = [3, 6, 12];
 const MATCH_LENGTH_LABELS = { 3: "三局", 6: "六局", 12: "十二局" };
 const CAPTURE_GROUPS = [["bright", "光"], ["animal", "たね"], ["ribbon", "短冊"], ["chaff", "かす"]];
-const DRAW_REVEAL_DURATION = 3000;
-const CAPTURE_FLIGHT_DURATION = 1500;
-const CAPTURE_FLIGHT_STAGGER = 130;
+const DRAW_REVEAL_DURATION = 1050;
+const CAPTURE_FLIGHT_DURATION = 720;
+const CAPTURE_FLIGHT_STAGGER = 60;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
-const PLAY_FLIGHT_DURATION = 900;
-const DRAW_TO_FIELD_DURATION = 1100;
-const MATCH_SLIDE_DURATION = 520;
-const PLAY_LAND_HOLD_DURATION = 560;
-const DRAW_TO_FIELD_HOLD_DURATION = 620;
-const MATCH_LAND_HOLD_DURATION = 480;
-const CAPTURE_LAND_HOLD_DURATION = 650;
-const REDUCED_DRAW_REVEAL_DURATION = 1700;
-const REDUCED_PLAY_FLIGHT_DURATION = 650;
-const REDUCED_DRAW_TO_FIELD_DURATION = 720;
-const REDUCED_CAPTURE_FLIGHT_DURATION = 900;
-const REDUCED_MATCH_SLIDE_DURATION = 420;
-const REDUCED_PLAY_LAND_HOLD_DURATION = 180;
-const REDUCED_DRAW_TO_FIELD_HOLD_DURATION = 220;
-const REDUCED_MATCH_LAND_HOLD_DURATION = 160;
-const REDUCED_CAPTURE_LAND_HOLD_DURATION = 220;
+const PLAY_FLIGHT_DURATION = 720;
+const DRAW_TO_FIELD_DURATION = 700;
+const MATCH_SLIDE_DURATION = 400;
+const PLAY_LAND_HOLD_DURATION = 220;
+const DRAW_TO_FIELD_HOLD_DURATION = 180;
+const MATCH_LAND_HOLD_DURATION = 150;
+const CAPTURE_LAND_HOLD_DURATION = 160;
+const REDUCED_DRAW_REVEAL_DURATION = 380;
+const REDUCED_PLAY_FLIGHT_DURATION = 260;
+const REDUCED_DRAW_TO_FIELD_DURATION = 280;
+const REDUCED_CAPTURE_FLIGHT_DURATION = 280;
+const REDUCED_MATCH_SLIDE_DURATION = 220;
+const REDUCED_PLAY_LAND_HOLD_DURATION = 60;
+const REDUCED_DRAW_TO_FIELD_HOLD_DURATION = 60;
+const REDUCED_MATCH_LAND_HOLD_DURATION = 50;
+const REDUCED_CAPTURE_LAND_HOLD_DURATION = 60;
 const LAYOUT_REFLOW_DURATION = 480;
 const REDUCED_LAYOUT_REFLOW_DURATION = 300;
 const CARD_MAP = new Map(window.HanafudaCards.cards.map((card) => [card.id, card]));
@@ -41,6 +41,8 @@ let phaseTimer = null;
 let interactionLocked = false;
 let interactionUnlockTimer = null;
 let selectedHandCardId = null;
+let queuedInput = null;
+let activeOutgoingCardId = null;
 const captureFlightIds = new Set();
 const motionOrigins = new Map();
 const drawFlightClones = new Map();
@@ -131,7 +133,12 @@ function shuffle(items) {
 function dealRound() {
   clearTimeout(drawTimer);
   clearTimeout(phaseTimer);
+  clearTimeout(interactionUnlockTimer);
+  interactionUnlockTimer = null;
+  interactionLocked = false;
   selectedHandCardId = null;
+  queuedInput = null;
+  activeOutgoingCardId = null;
   motionOrigins.clear();
   captureFlightIds.clear();
   drawFlightClones.forEach((element) => element.remove());
@@ -403,6 +410,7 @@ async function beginResolve(cardId, source, actorSeat) {
     state.pending = { cardId, source, actorSeat, matches };
     state.message = `${card.monthName}の札を選んでください`;
     persistAndRender();
+    flushQueuedInput();
     if (mode === "solo" && actorSeat === 1) {
       aiTimer = window.setTimeout(() => chooseMatch(matches[0], 1), 850);
     }
@@ -452,6 +460,7 @@ function drawCard(actorSeat) {
     state.phase = "drawReady";
     state.pending = { actorSeat, drawnCard: drawn, matches };
     persistAndRender();
+    flushQueuedInput();
     if (mode === "solo" && actorSeat === 1) {
       aiTimer = window.setTimeout(() => resolveDraw(matches.length === 2 ? matches[0] : null, actorSeat), 1050);
     }
@@ -578,7 +587,10 @@ function endTurn() {
   state.phase = "play";
   state.pending = null;
   state.message = "";
+  activeOutgoingCardId = null;
+  if (queuedInput?.type !== "hand") queuedInput = null;
   persistAndRender();
+  flushQueuedInput();
   scheduleAiIfNeeded();
 }
 
@@ -691,6 +703,40 @@ function updateHandSelection(cardId = null) {
   renderTurnBanner(localSeat());
 }
 
+function queueNextInput(intent) {
+  if (!intent) return;
+  queuedInput = intent;
+  els.turnBanner.classList.remove("input-buffered");
+  void els.turnBanner.offsetWidth;
+  els.turnBanner.classList.add("input-buffered");
+}
+
+function flushQueuedInput() {
+  if (!queuedInput || interactionLocked) return;
+  const intent = queuedInput;
+  if (state.phase === "select" && state.pending?.actorSeat === localSeat()) {
+    queuedInput = null;
+    if (intent.type !== "match" || !state.pending.matches?.includes(intent.cardId)) return;
+    const target = els.field.querySelector(`[data-card-id="${intent.cardId}"]`);
+    if (target) handleMatchClick(intent.cardId, target);
+    return;
+  }
+  if (state.phase === "drawReady" && state.pending?.actorSeat === localSeat()) {
+    const matches = state.pending.matches || [];
+    queuedInput = null;
+    if (matches.length === 2) {
+      if (intent.type === "drawMatch" && matches.includes(intent.cardId)) handleDrawConfirm(intent.cardId);
+      return;
+    }
+    if (intent.type === "advance") handleDrawConfirm();
+    return;
+  }
+  if (state.phase === "play" && state.currentPlayer === localSeat() && intent.type === "hand") {
+    queuedInput = null;
+    if (visibleHand().includes(intent.cardId)) updateHandSelection(intent.cardId);
+  }
+}
+
 function clearDrawFlightClone(cardId) {
   const clone = drawFlightClones.get(cardId);
   clone?.remove();
@@ -779,9 +825,13 @@ async function animatePlayedCard(sourceElement, cardId, options = {}) {
   const placement = matchingFields.length ? null : nextFieldPlacementPoint();
   const targetX = matchingLanding?.x ?? placement?.x ?? fallbackRect.left + fallbackRect.width / 2;
   const targetY = matchingLanding?.y ?? placement?.y ?? fallbackRect.top + fallbackRect.height / 2;
+  const fieldCardRect = matchingFields[0]?.getBoundingClientRect() || els.field.querySelector(".card")?.getBoundingClientRect();
+  const targetWidth = fieldCardRect?.width || sourceRect.width;
+  const targetHeight = fieldCardRect?.height || sourceRect.height;
+  const landingScale = Math.min(targetWidth / sourceRect.width, targetHeight / sourceRect.height);
   const sourceX = sourceRect.left + sourceRect.width / 2;
   const sourceY = sourceRect.top + sourceRect.height / 2;
-  motionOrigins.set(cardId, cardSizedRect(targetX, targetY, sourceRect.width, sourceRect.height));
+  motionOrigins.set(cardId, cardSizedRect(targetX, targetY, targetWidth, targetHeight));
   const faceDownSource = Boolean(options.faceDown || sourceElement?.classList.contains("back"));
   const clone = faceDownSource ? createCardElement(cardId) : sourceElement.cloneNode(true);
   clone.removeAttribute("id");
@@ -805,14 +855,14 @@ async function animatePlayedCard(sourceElement, cardId, options = {}) {
   const keyframes = reducedMotion
     ? [
       { transform: `translate3d(0, 0, 0) rotateY(${faceDownSource ? 88 : 0}deg) scale(1)`, opacity: faceDownSource ? .35 : 1 },
-      { transform: `translate3d(${dx}px, ${dy}px, 0) rotateY(0) scale(1)`, opacity: 1 }
+      { transform: `translate3d(${dx}px, ${dy}px, 0) rotateY(0) scale(${landingScale})`, opacity: 1 }
     ]
     : [
       { transform: `translate3d(0, 0, 0) rotateY(${faceDownSource ? 88 : 0}deg) rotate(0deg) scale(1)`, opacity: faceDownSource ? .4 : 1, filter: "brightness(1)" },
-      { offset: .2, transform: `translate3d(${dx * .08}px, ${dy * .05 - arc * .45}px, 0) rotateY(0) rotate(-.7deg) scale(1.025)`, opacity: 1, filter: "brightness(1.08)" },
-      { offset: .42, transform: `translate3d(${dx * .38}px, ${dy * .31 - arc}px, 0) rotateY(0) rotate(-1.2deg) scale(1.035)`, opacity: 1, filter: "brightness(1.08)" },
-      { offset: .82, transform: `translate3d(${dx * .88}px, ${dy * .86 - arc * .25}px, 0) rotateY(0) rotate(.45deg) scale(1.02)`, opacity: 1, filter: "brightness(1.14)" },
-      { transform: `translate3d(${dx}px, ${dy}px, 0) rotateY(0) rotate(0deg) scale(1)`, opacity: 1, filter: "brightness(1)" }
+      { offset: .2, transform: `translate3d(${dx * .08}px, ${dy * .05 - arc * .45}px, 0) rotateY(0) rotate(-.7deg) scale(${1 + (landingScale - 1) * .18})`, opacity: 1, filter: "brightness(1.08)" },
+      { offset: .42, transform: `translate3d(${dx * .38}px, ${dy * .31 - arc}px, 0) rotateY(0) rotate(-1.2deg) scale(${1 + (landingScale - 1) * .46})`, opacity: 1, filter: "brightness(1.08)" },
+      { offset: .82, transform: `translate3d(${dx * .88}px, ${dy * .86 - arc * .25}px, 0) rotateY(0) rotate(.45deg) scale(${1 + (landingScale - 1) * .9})`, opacity: 1, filter: "brightness(1.14)" },
+      { transform: `translate3d(${dx}px, ${dy}px, 0) rotateY(0) rotate(0deg) scale(${landingScale})`, opacity: 1, filter: "brightness(1)" }
     ];
   const animation = clone.animate(keyframes, {
     duration: reducedMotion ? REDUCED_PLAY_FLIGHT_DURATION : PLAY_FLIGHT_DURATION,
@@ -936,6 +986,7 @@ async function handleHandClick(cardId, sourceElement) {
     return;
   }
   selectedHandCardId = null;
+  activeOutgoingCardId = cardId;
   interactionLocked = true;
   const sendsOnline = Boolean(window.TierOnline?.shouldSendAction());
   previewCaptureFor(cardId, true);
@@ -980,7 +1031,41 @@ async function handleDrawConfirm(fieldCardId = null) {
 }
 
 function handleGameTap(event) {
-  if (selectedHandCardId && !event.target.closest("#playerHand .card")) updateHandSelection(null);
+  const handCard = event.target.closest("#playerHand .card[data-card-id]");
+  const fieldCard = event.target.closest("#fieldCards .card[data-card-id]");
+  if (handCard && state.currentPlayer !== localSeat()) {
+    queueNextInput({ type: "hand", cardId: handCard.dataset.cardId });
+    return;
+  }
+  if (handCard && interactionLocked && handCard.dataset.cardId !== activeOutgoingCardId) {
+    queueNextInput({ type: "hand", cardId: handCard.dataset.cardId });
+    return;
+  }
+  if (state.phase === "draw") {
+    const drawnCard = state.pending?.drawnCard;
+    const month = CARD_MAP.get(drawnCard)?.month;
+    const matches = state.field.filter((id) => CARD_MAP.get(id)?.month === month);
+    if (matches.length === 2) {
+      if (fieldCard && matches.includes(fieldCard.dataset.cardId)) queueNextInput({ type: "drawMatch", cardId: fieldCard.dataset.cardId });
+    } else if (event.target.closest(".table-zone")) queueNextInput({ type: "advance" });
+    return;
+  }
+  if (state.phase === "capture") {
+    if (handCard) queueNextInput({ type: "hand", cardId: handCard.dataset.cardId });
+    else if (event.target.closest(".table-zone")) queueNextInput({ type: "advance" });
+    return;
+  }
+  if (state.phase === "play" && interactionLocked && activeOutgoingCardId) {
+    const month = CARD_MAP.get(activeOutgoingCardId)?.month;
+    const matches = state.field.filter((id) => CARD_MAP.get(id)?.month === month);
+    if (matches.length === 2 && fieldCard && matches.includes(fieldCard.dataset.cardId)) {
+      queueNextInput({ type: "match", cardId: fieldCard.dataset.cardId });
+    } else if (event.target.closest(".table-zone")) {
+      queueNextInput({ type: "advance" });
+    }
+    return;
+  }
+  if (selectedHandCardId && !handCard) updateHandSelection(null);
 }
 
 function handleTableTap(event) {
@@ -996,6 +1081,7 @@ function scheduleInteractionUnlock(delay, onFallback) {
     interactionLocked = false;
     interactionUnlockTimer = null;
     onFallback?.();
+    flushQueuedInput();
   }, delay);
 }
 
@@ -1003,6 +1089,7 @@ function releaseInteractionLock() {
   clearTimeout(interactionUnlockTimer);
   interactionUnlockTimer = null;
   interactionLocked = false;
+  flushQueuedInput();
 }
 
 function handleKoi(choice) {
@@ -1897,7 +1984,12 @@ document.querySelector("#backLobbyButton").addEventListener("click", () => {
   clearTimeout(aiTimer);
   clearTimeout(drawTimer);
   clearTimeout(phaseTimer);
+  clearTimeout(interactionUnlockTimer);
+  interactionUnlockTimer = null;
+  interactionLocked = false;
   selectedHandCardId = null;
+  queuedInput = null;
+  activeOutgoingCardId = null;
   drawFlightClones.forEach((element) => element.remove());
   drawFlightClones.clear();
   mode = "lobby";
