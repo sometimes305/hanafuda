@@ -201,7 +201,7 @@ input:focus, select:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 
 .deck-pile::after { transform: translate(2px, 1px); filter: brightness(.78); }
 .deck-card { z-index: 1; }
 .deck-pile.empty { opacity: .25; filter: grayscale(1); }
-.deck-pile.drawing { animation: deckPulse 1000ms cubic-bezier(.16, 1, .3, 1); }
+.deck-pile.drawing { animation: deckPulse 950ms cubic-bezier(.16, 1, .3, 1); }
 .deck-label { color: var(--ivory-dim); font-size: 8px; letter-spacing: .08em; }
 .deck-label.revealed { max-width: 90px; color: var(--gold-bright); font-weight: 700; text-align: center; white-space: nowrap; }
 .drawn-card-preview { width: var(--card-w); height: var(--card-h); position: absolute; left: 0; top: 50%; z-index: 6; transform: translate3d(0, -50%, 0) rotate(-1deg) scale(1.02); transform-origin: center; perspective: 520px; pointer-events: none; }
@@ -209,9 +209,9 @@ input:focus, select:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 
 .drawn-card-preview .card { width: 100%; height: 100%; background: transparent; box-shadow: 0 0 0 2px var(--gold-bright), 0 5px 8px #000b; -webkit-transform-style: preserve-3d; transform-style: preserve-3d; }
 .drawn-card-preview .card-face { -webkit-backface-visibility: hidden; backface-visibility: hidden; -webkit-transform: rotateY(0deg) translateZ(.2px); transform: rotateY(0deg) translateZ(.2px); transform-origin: 12% 50%; }
 .drawn-card-preview .drawn-card::after { content: ""; position: absolute; inset: 0; z-index: 3; border-radius: 3px; background: #8f0500 url("assets/cards/48.png") center / 100% 100%; -webkit-backface-visibility: hidden; backface-visibility: hidden; -webkit-transform: rotateY(90deg); transform: rotateY(90deg); transform-origin: 12% 50%; }
-.drawn-card-preview.revealing .drawn-card { animation: deckFlipTilt 750ms cubic-bezier(.45, 0, .2, 1) both; }
-.drawn-card-preview.revealing .card-face { animation: deckFlipFront 750ms cubic-bezier(.45, 0, .2, 1) both; }
-.drawn-card-preview.revealing .drawn-card::after { animation: deckFlipBack 750ms cubic-bezier(.45, 0, .2, 1) both; }
+.drawn-card-preview.revealing .drawn-card { animation: deckFlipTilt 700ms cubic-bezier(.45, 0, .2, 1) both; }
+.drawn-card-preview.revealing .card-face { animation: deckFlipFront 700ms cubic-bezier(.45, 0, .2, 1) both; }
+.drawn-card-preview.revealing .drawn-card::after { animation: deckFlipBack 700ms cubic-bezier(.45, 0, .2, 1) both; }
 .drawn-card-preview .card.committed { opacity: 0; }
 @keyframes deckPulse { 45% { transform: translateY(-3px) rotate(-1deg); filter: drop-shadow(0 7px 5px #000d) brightness(1.12); } }
 @keyframes deckFlipTilt {
