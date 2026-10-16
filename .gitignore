@@ -1,0 +1,13 @@
+.chrome-qa-v2/
+.edge-qa-v2/
+.qa-mobile-captures/
+.impeccable/
+vendor/
+
+# 制作時の比較画像。公開版では未使用。
+assets/card-back.png
+assets/design-concept.png
+assets/implementation-*.png
+
+.DS_Store
+Thumbs.db

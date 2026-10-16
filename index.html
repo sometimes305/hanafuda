@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0b08" />
+    <title>花札 こいこい</title>
+    <link rel="stylesheet" href="style.css?v=15" />
+    <script src="https://cdn.gravity.place/fe/sdk/index-1.0.2.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="lobby" id="lobby" aria-labelledby="lobbyTitle">
+        <div class="lobby-mark" aria-hidden="true">花</div>
+        <h1 id="lobbyTitle">花札 <span>こいこい</span></h1>
+        <p class="lobby-lead">三・六・十二局から選ぶ、花の勝負。</p>
+
+        <div class="profile-row">
+          <div class="profile-avatar" id="profileAvatar">名</div>
+          <div><small>プレイヤー</small><strong id="displayUsername">名無し</strong></div>
+        </div>
+
+        <div class="online-screen lobby-actions" data-online-screen="home">
+          <button type="button" id="goCreateRoomButton" class="button primary">部屋をつくる</button>
+          <button type="button" id="goJoinRoomButton" class="button">部屋に参加</button>
+          <div class="solo-settings">
+            <fieldset class="round-picker">
+              <legend>ひとり対局の局数</legend>
+              <div class="round-options">
+                <label class="round-option"><input type="radio" name="soloMatchLength" value="3" /><span>3局</span></label>
+                <label class="round-option"><input type="radio" name="soloMatchLength" value="6" /><span>6局</span></label>
+                <label class="round-option"><input type="radio" name="soloMatchLength" value="12" checked /><span>12局</span></label>
+              </div>
+              <small>選んだ局数の合計文で勝負</small>
+            </fieldset>
+            <button type="button" id="soloButton" class="button quiet">ひとりで試す</button>
+          </div>
+          <button type="button" class="text-button" data-help-button>遊び方</button>
+        </div>
+
+        <div class="online-screen lobby-actions hidden" data-online-screen="create">
+          <div class="screen-title"><strong>部屋をつくる</strong><button class="text-button" data-online-back>戻る</button></div>
+          <label class="field"><span>名前</span><input id="username" maxlength="12" placeholder="名前を入力" /></label>
+          <input id="roomCapacity" type="hidden" value="2" />
+          <label class="field"><span>公開範囲</span><select id="roomPermission"><option value="0">公開</option><option value="1">非公開</option></select></label>
+          <fieldset class="round-picker">
+            <legend>対局する局数</legend>
+            <div class="round-options">
+              <label class="round-option"><input type="radio" name="onlineMatchLength" value="3" /><span>3局</span></label>
+              <label class="round-option"><input type="radio" name="onlineMatchLength" value="6" /><span>6局</span></label>
+              <label class="round-option"><input type="radio" name="onlineMatchLength" value="12" checked /><span>12局</span></label>
+            </div>
+            <small>この設定は参加者にも共有されます</small>
+          </fieldset>
+          <button type="button" id="createRoomButton" class="button primary">部屋を作成</button>
+        </div>
+
+        <div class="online-screen lobby-actions hidden" data-online-screen="join">
+          <div class="screen-title"><strong>部屋に参加</strong><button class="text-button" data-online-back>戻る</button></div>
+          <label class="field"><span>名前</span><input id="usernameJoin" maxlength="12" placeholder="名前を入力" /></label>
+          <div class="join-row"><input id="joinRoomInput" maxlength="80" placeholder="ルームID" /><button type="button" id="joinRoomButton" class="button compact">参加</button></div>
+          <div class="room-list-head"><span>公開中の部屋</span><button type="button" id="refreshRoomsButton" class="text-button">更新</button></div>
+          <div id="roomList" class="room-list"></div>
+        </div>
+
+        <p id="onlineStatus" class="online-status" aria-live="polite"></p>
+        <div id="roomPanel" class="room-panel hidden">
+          <div><small>ルームID</small><strong id="activeRoomId">未入室</strong></div>
+          <div><small>対局</small><strong id="roomMatchLength">12局勝負</strong></div>
+          <div><small>参加者</small><div id="participantList" class="participant-list"></div></div>
+          <div class="room-actions"><button id="startOnlineButton" class="button primary" type="button">対局を始める</button><button id="exitRoomButton" class="text-button danger" type="button">退出</button></div>
+        </div>
+      </section>
+
+      <section class="game hidden" id="game" aria-label="花札対局">
+        <header class="match-header">
+          <div class="brand"><span class="brand-flower">花</span><span>花札 こいこい</span></div>
+          <div class="scoreboard">
+            <span><b id="topRole">親</b> <strong id="topScore">0</strong>文</span>
+            <i></i>
+            <span><b id="bottomRole">子</b> <strong id="bottomScore">0</strong>文</span>
+          </div>
+          <button id="menuButton" class="icon-button" type="button" aria-label="メニュー"><span></span><span></span><span></span></button>
+        </header>
+
+        <section class="opponent-zone" aria-label="相手の手札">
+          <div class="player-meta">
+            <div id="opponentAvatar" class="mini-avatar">相</div>
+            <div><strong id="opponentName">相手</strong><small id="opponentCaptured">取札 0枚</small></div>
+          </div>
+          <div class="card-row backs" id="opponentHand"></div>
+          <div class="board-captures board-captures-opponent" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="captureDialog" aria-label="相手の取札。タップして一覧を開く">
+            <div class="board-captures-head"><span>相手の取札</span><span class="board-captures-tools"><span class="captured-summary" id="opponentCapturedSummary"></span><span class="capture-expand-hint" aria-hidden="true">一覧</span></span></div>
+            <div class="captured-board-rail" id="opponentCapturedRail"></div>
+          </div>
+        </section>
+
+        <section class="table-zone">
+          <div class="round-marker"><strong id="monthLabel">一月</strong><span id="roundProgress">1 / 12局</span><span id="deckCount">残り24枚</span></div>
+          <div class="play-surface">
+            <div class="field-grid" id="fieldCards" aria-label="場札"></div>
+            <aside class="deck-slot" aria-label="山札">
+              <div class="deck-pile" id="deckPile" role="img" aria-label="山札 残り24枚">
+                <span class="deck-card" aria-hidden="true"></span>
+                <b id="deckPileCount">24</b>
+              </div>
+              <span class="deck-label" id="deckLabel">山札</span>
+              <div class="drawn-card-preview hidden" id="drawnCardPreview" aria-live="polite"></div>
+            </aside>
+          </div>
+          <div id="turnBanner" class="turn-banner" aria-live="polite">あなたの番</div>
+        </section>
+
+        <section class="player-zone" aria-label="自分の手札">
+          <div class="board-captures board-captures-self" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="captureDialog" aria-label="自分の取札と役の進み。タップして一覧を開く">
+            <div class="board-captures-head">
+              <span class="board-captures-owner">自分の取札 <b id="captureTotal">0</b></span>
+              <span class="board-captures-tools"><span class="captured-summary" id="capturedSummary"></span><span class="capture-expand-hint" aria-hidden="true">一覧</span></span>
+            </div>
+            <div class="captured-board-rail" id="capturedBoardRail"></div>
+            <div class="capture-yaku-strip" id="captureYakuStrip" aria-live="polite">札を取ると役の進みを表示</div>
+          </div>
+          <div class="card-row hand" id="playerHand"></div>
+          <div class="self-meta"><span id="selfName">あなた</span><small id="selfCaptured">取札 0枚</small></div>
+        </section>
+
+        <div id="choiceOverlay" class="choice-overlay hidden" role="dialog" aria-modal="true"></div>
+        <div id="toast" class="toast hidden" aria-live="assertive"></div>
+      </section>
+    </main>
+
+    <dialog id="menuDialog" class="game-dialog">
+      <div class="dialog-head"><h2>メニュー</h2><button type="button" data-close-dialog aria-label="閉じる">×</button></div>
+      <button id="rulesButton" class="dialog-action" type="button">遊び方・役一覧</button>
+      <button id="backLobbyButton" class="dialog-action danger" type="button">ロビーに戻る</button>
+    </dialog>
+
+    <dialog id="rulesDialog" class="game-dialog rules-dialog" aria-labelledby="rulesDialogTitle">
+      <div class="rules-dialog-sticky">
+        <div class="dialog-head"><h2 id="rulesDialogTitle">遊び方・札一覧</h2><button type="button" data-close-dialog aria-label="遊び方を閉じる">×</button></div>
+        <div class="rules-tabs" role="tablist" aria-label="表示する内容">
+          <button type="button" role="tab" id="rulesTabPlay" aria-controls="rulesPanelPlay" aria-selected="true" data-rules-tab="play">遊び方</button>
+          <button type="button" role="tab" id="rulesTabYaku" aria-controls="rulesPanelYaku" aria-selected="false" tabindex="-1" data-rules-tab="yaku">役一覧</button>
+          <button type="button" role="tab" id="rulesTabMonths" aria-controls="rulesPanelMonths" aria-selected="false" tabindex="-1" data-rules-tab="months">月の札</button>
+        </div>
+      </div>
+      <section id="rulesPanelPlay" class="rules-panel" role="tabpanel" aria-labelledby="rulesTabPlay" data-rules-panel="play">
+        <div class="rules-play-steps">
+          <article class="rules-step"><span class="rules-step-number">一</span><div class="rules-step-copy"><strong>同じ月の札を合わせる</strong><p>手札から一枚出し、同じ月の場札があれば二枚とも取札にします。</p></div><div class="rules-visual" data-rules-example="match"></div></article>
+          <article class="rules-step"><span class="rules-step-number">二</span><div class="rules-step-copy"><strong>山札を一枚めくる</strong><p>続けて山札をめくり、同じ月の札があれば同じように取ります。</p></div><div class="rules-visual" data-rules-example="draw"></div></article>
+          <article class="rules-step"><span class="rules-step-number">三</span><div class="rules-step-copy"><strong>役ができたら選ぶ</strong><p>「こいこい」で続けるか、「上がり」で文数を確定します。</p></div><div class="rules-visual rules-visual-yaku" data-rules-example="yaku"></div></article>
+        </div>
+        <p class="rules-match-note">対局前に3・6・12局から選び、全局の合計文数で勝敗を決めます。</p>
+      </section>
+      <section id="rulesPanelYaku" class="rules-panel" role="tabpanel" aria-labelledby="rulesTabYaku" data-rules-panel="yaku" hidden>
+        <p class="rules-panel-intro">役になる札の組み合わせと文数です。</p>
+        <div id="rulesYakuList" class="rules-yaku-list"></div>
+      </section>
+      <section id="rulesPanelMonths" class="rules-panel" role="tabpanel" aria-labelledby="rulesTabMonths" data-rules-panel="months" hidden>
+        <p class="rules-panel-intro">同じ月の札同士を合わせます。各月は四枚です。</p>
+        <div id="rulesMonthList" class="rules-month-list"></div>
+      </section>
+    </dialog>
+
+    <dialog id="captureDialog" class="game-dialog capture-dialog" aria-labelledby="captureDialogTitle">
+      <div class="dialog-head capture-dialog-head">
+        <div><small>取札一覧</small><h2 id="captureDialogTitle">自分の取札</h2></div>
+        <button type="button" data-close-dialog aria-label="取札一覧を閉じる">×</button>
+      </div>
+      <p id="captureDialogSummary" class="capture-dialog-summary"></p>
+      <div id="captureDialogGroups" class="capture-dialog-groups"></div>
+    </dialog>
+
+    <script src="cards.js?v=1"></script>
+    <script src="app.js?v=15"></script>
+    <script src="online.js?v=1"></script>
+  </body>
+</html>
