@@ -30,3 +30,21 @@
 ## ブラウザ単体
 
 Gravity 外で開いた場合もロビーは表示されます。「ひとりで試す」は通信を使わず、同じ対局ロジックで CPU と対戦します。
+
+## Gravity ローダー連携
+
+ローダーが提供する正式APIを主経路として使います。
+
+```js
+AgentSDK.user.getMyUserInfo()
+AgentSDK.room.getRoomId()
+AgentSDK.room.create(params)
+AgentSDK.room.join(params)
+AgentSDK.room.getPublicRoomList()
+AgentSDK.room.exit()
+AgentSDK.room.receiveMessage(callback)
+```
+
+名前とアイコンは `getMyUserInfo()` の応答から取得し、ユーザー入力では変更しません。正式APIがない古いローダーに限り、従来の `postMessage` 形式へフォールバックします。
+
+公開ルーム一覧は `room_type` が `aitools_game_room` と一致し、作成から10分以内の部屋だけを表示します。

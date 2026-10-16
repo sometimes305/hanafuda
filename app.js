@@ -57,6 +57,7 @@ function createInitialState() {
     dealer: 0,
     currentPlayer: 0,
     players: ["あなた", "相手"],
+    playerIcons: [null, null],
     scores: [0, 0],
     hands: [[], []],
     handCounts: [0, 0],
@@ -176,6 +177,7 @@ function startSolo() {
   state.matchLength = selectedMatchLength("soloMatchLength");
   state.active = true;
   state.players = [localPlayerName === "Player" ? "あなた" : localPlayerName, "花見の達人"];
+  state.playerIcons = [localPlayerIcon, null];
   dealRound();
 }
 
@@ -184,8 +186,8 @@ function startOnlineGame() {
     showToast("対局はホストが開始します");
     return;
   }
-  const names = window.TierOnline.getGameParticipantNames();
-  if (names.length < 2) {
+  const participants = window.TierOnline.getGameParticipants();
+  if (participants.length < 2) {
     showToast("もう一人の参加を待っています");
     return;
   }
@@ -194,7 +196,8 @@ function startOnlineGame() {
   state = createInitialState();
   state.matchLength = selectedMatchLength("onlineMatchLength");
   state.active = true;
-  state.players = [names[0], names[1]];
+  state.players = participants.slice(0, 2).map((participant) => participant.name);
+  state.playerIcons = participants.slice(0, 2).map((participant) => participant.icon || null);
   dealRound();
 }
 
@@ -539,11 +542,13 @@ function nextRound() {
 
 function rematch() {
   const players = [...state.players];
+  const playerIcons = [...(state.playerIcons || [null, null])];
   const matchLength = state.matchLength;
   state = createInitialState();
   state.matchLength = matchLength;
   state.active = true;
   state.players = players;
+  state.playerIcons = playerIcons;
   dealRound();
 }
 
@@ -1203,7 +1208,8 @@ function render() {
   document.querySelector("#deckCount").textContent = `残り${state.deck.length}枚`;
   document.querySelector("#selfName").textContent = state.players[self] || "あなた";
   document.querySelector("#opponentName").textContent = state.players[opponent] || "相手";
-  document.querySelector("#opponentAvatar").textContent = (state.players[opponent] || "相").slice(0, 1);
+  renderAvatar(document.querySelector("#selfAvatar"), state.players[self] || "あなた", state.playerIcons?.[self]);
+  renderAvatar(document.querySelector("#opponentAvatar"), state.players[opponent] || "相手", state.playerIcons?.[opponent]);
   document.querySelector("#selfCaptured").textContent = `取札 ${(state.captures[self] || []).length}枚`;
   document.querySelector("#opponentCaptured").textContent = `取札 ${(state.captures[opponent] || []).length}枚`;
   document.querySelector("#topScore").textContent = state.scores[opponent] || 0;
@@ -1418,12 +1424,26 @@ function renderChoice(self) {
 
 function renderProfile() {
   document.querySelector("#displayUsername").textContent = localPlayerName === "Player" ? "名無し" : localPlayerName;
-  const avatar = document.querySelector("#profileAvatar");
-  avatar.textContent = (localPlayerName === "Player" ? "名" : localPlayerName).slice(0, 1);
-  if (localPlayerIcon) {
-    avatar.style.backgroundImage = `url("${String(localPlayerIcon).replace(/\"/g, "")}")`;
-    avatar.style.backgroundSize = "cover";
+  renderAvatar(document.querySelector("#profileAvatar"), localPlayerName === "Player" ? "名" : localPlayerName, localPlayerIcon);
+}
+
+function renderAvatar(target, name, icon) {
+  if (!target) return;
+  target.replaceChildren();
+  target.style.backgroundImage = "";
+  target.style.backgroundSize = "";
+  if (icon) {
+    const image = document.createElement("img");
+    image.src = String(icon);
+    image.alt = "";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("error", () => {
+      target.replaceChildren(document.createTextNode(String(name || "名").slice(0, 1)));
+    }, { once: true });
+    target.append(image);
+    return;
   }
+  target.textContent = String(name || "名").slice(0, 1);
 }
 
 function renderRoomStartState() {

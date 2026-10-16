@@ -4,7 +4,7 @@
   const SDK_TIMEOUT_MS = 30000;
 
   const online = {
-    isGravity: window.self !== window.top || new URLSearchParams(window.location.search).has("username") || new URLSearchParams(window.location.search).has("room_id") || new URLSearchParams(window.location.search).has("roomid"),
+    isGravity: window.self !== window.top || Boolean(window.ReactNativeWebView) || new URLSearchParams(window.location.search).has("username") || new URLSearchParams(window.location.search).has("userName") || new URLSearchParams(window.location.search).has("room_id") || new URLSearchParams(window.location.search).has("roomid"),
     gravityRequests: {},
     gravityRoomRequests: {},
     gravityUserInfo: null,
@@ -21,6 +21,7 @@
     statusMessage: "",
     lastBridgeEvent: "",
     participants: [],
+    identityPromise: null,
 
     isHost() {
       return this.online && this.host;
@@ -31,8 +32,6 @@
     },
 
     bindControls() {
-      const nameInput = document.querySelector("#username");
-      const joinNameInput = document.querySelector("#usernameJoin");
       const goCreateButton = document.querySelector("#goCreateRoomButton");
       const goJoinButton = document.querySelector("#goJoinRoomButton");
       const createButton = document.querySelector("#createRoomButton");
@@ -40,20 +39,6 @@
       const joinButton = document.querySelector("#joinRoomButton");
       const exitButton = document.querySelector("#exitRoomButton");
 
-      if (nameInput && !nameInput.dataset.boundOnline) {
-        nameInput.dataset.boundOnline = "1";
-        nameInput.addEventListener("input", () => {
-          this.localPlayerName = nameInput.value.trim() || "Player";
-          window.TierGame.setPlayerName(this.localPlayerName, this.localPlayerIcon);
-        });
-      }
-      if (joinNameInput && !joinNameInput.dataset.boundOnline) {
-        joinNameInput.dataset.boundOnline = "1";
-        joinNameInput.addEventListener("input", () => {
-          this.localPlayerName = joinNameInput.value.trim() || "Player";
-          window.TierGame.setPlayerName(this.localPlayerName, this.localPlayerIcon);
-        });
-      }
       if (goCreateButton && !goCreateButton.dataset.boundOnline) {
         goCreateButton.dataset.boundOnline = "1";
         goCreateButton.addEventListener("click", () => this.showOnlineScreen("create"));
@@ -128,11 +113,7 @@
     },
 
     refreshProfile() {
-      const input = document.querySelector("#username");
-      const joinInput = document.querySelector("#usernameJoin");
-      if (input && !input.value) input.value = this.localPlayerName;
-      if (joinInput && !joinInput.value) joinInput.value = this.localPlayerName;
-      window.TierGame.setPlayerName((input && input.value.trim()) || this.localPlayerName, this.localPlayerIcon);
+      window.TierGame.setPlayerName(this.localPlayerName, this.localPlayerIcon);
     },
 
     refreshStatus(text) {
@@ -188,6 +169,13 @@
           const img = document.createElement("img");
           img.src = member.icon;
           img.alt = member.name || "player";
+          img.referrerPolicy = "no-referrer";
+          img.addEventListener("error", () => {
+            const initial = document.createElement("span");
+            initial.className = "participant-initial";
+            initial.textContent = (member.name || "名").slice(0, 1);
+            img.replaceWith(initial);
+          }, { once: true });
           chip.append(img);
         } else {
           const initial = document.createElement("span");
@@ -236,30 +224,39 @@
 
     normalizeParticipant(raw, index) {
       if (!raw || typeof raw !== "object") return null;
-      const name = raw.name || raw.nickname || raw.user_name || raw.userName || raw.nick_name || raw.player_name || `Player${index + 1}`;
-      const icon = raw.portrait || raw.avatar || raw.icon || raw.head_img || raw.headimgurl || raw.profile_image || raw.profileImage || null;
+      const name = raw.name || raw.nickname || raw.username || raw.user_name || raw.userName || raw.nick_name || raw.nickName || raw.player_name || `Player${index + 1}`;
+      const icon = raw.portrait || raw.avatar || raw.icon || raw.avatar_url || raw.avatarUrl || raw.head_img || raw.headimgurl || raw.profile_image || raw.profileImage || null;
       const id = raw.id || raw.user_id || raw.userId || raw.open_id || raw.openId || name;
       return { id: String(id), name: String(name), icon };
     },
 
     getGameParticipantNames() {
-      const names = [];
-      const pushName = (name) => {
+      return this.getGameParticipants().map((participant) => participant.name);
+    },
+
+    getGameParticipants() {
+      const participants = [];
+      const pushParticipant = (name, icon = null) => {
         const safeName = String(name || "").trim();
         if (!safeName) return;
-        if (!names.some((item) => item.toLowerCase() === safeName.toLowerCase())) names.push(safeName);
+        const existing = participants.find((item) => item.name.toLowerCase() === safeName.toLowerCase());
+        if (existing) {
+          if (!existing.icon && icon) existing.icon = icon;
+          return;
+        }
+        participants.push({ name: safeName, icon: icon || null });
       };
 
-      pushName(this.localPlayerName);
+      pushParticipant(this.localPlayerName, this.localPlayerIcon);
       if (this.host) {
         this.conns.forEach((conn) => {
-          if (conn && conn.open && conn._playerName) pushName(conn._playerName);
+          if (conn && conn.open && conn._playerName) pushParticipant(conn._playerName, conn._playerIcon);
         });
-        return names;
+        return participants;
       }
 
-      this.participants.forEach((player) => pushName(player.name));
-      return names;
+      this.participants.forEach((player) => pushParticipant(player.name, player.icon));
+      return participants;
     },
 
     makeHostPeerId(roomId) {
@@ -444,7 +441,40 @@
       this.conn.send({ type: "action", action });
     },
 
+    applyUserIdentity(raw) {
+      const normalized = this.normalizeUser(raw);
+      if (!normalized?.name) return false;
+      this.gravityUserInfo = raw;
+      this.localPlayerName = normalized.name;
+      this.localPlayerIcon = normalized.icon;
+      window.TierGame.setPlayerName(this.localPlayerName, this.localPlayerIcon);
+      if (this.online) {
+        this.upsertParticipant({ id: "self", name: this.localPlayerName, icon: this.localPlayerIcon });
+      } else {
+        this.renderParticipants();
+      }
+      return true;
+    },
+
+    async ensureLoaderIdentity() {
+      if (this.localPlayerName && this.localPlayerName !== "Player") return true;
+      if (!this.isGravity) return false;
+      try {
+        if (this.identityPromise) await this.identityPromise;
+        if (this.localPlayerName && this.localPlayerName !== "Player") return true;
+        const user = await this.callGravitySDK("AgentSDK.user.getMyUserInfo");
+        return this.applyUserIdentity(user);
+      } catch (error) {
+        console.warn("[HanafudaOnline] loader identity unavailable:", error);
+        return false;
+      }
+    },
+
     async createRoom() {
+      if (!(await this.ensureLoaderIdentity())) {
+        this.refreshStatus("ローダーからプレイヤー情報を取得できません");
+        return;
+      }
       this.localPlayerName = window.TierGame.getPlayerName();
       this.host = true;
       this.online = true;
@@ -460,8 +490,7 @@
           room_permission: permission,
           permission
         });
-        const roomData = (res && res.data) || res || {};
-        this.roomId = roomData.room_id || roomData.roomId;
+        this.roomId = this.extractRoomId(res);
         if (!this.roomId) throw new Error(`room_idが返ってきません: ${JSON.stringify(res)}`);
         this.startHostPeer(this.roomId);
         this.setParticipants([]);
@@ -479,6 +508,10 @@
       let rid = String(roomId || "").trim();
       if (!rid) {
         this.refreshStatus("部屋IDを入力してください");
+        return;
+      }
+      if (!(await this.ensureLoaderIdentity())) {
+        this.refreshStatus("ローダーからプレイヤー情報を取得できません");
         return;
       }
       this.localPlayerName = window.TierGame.getPlayerName();
@@ -556,6 +589,8 @@
       const now = Date.now();
       const tenMinutes = 10 * 60 * 1000;
       return rooms.filter((room) => {
+        const roomType = room.room_type || room.roomType;
+        if (roomType && roomType !== ROOM_TYPE) return false;
         const ts = room.create_time || room.created_at || room.createTime || room.createdAt;
         if (!ts) return true;
         let date = new Date(ts);
@@ -577,6 +612,14 @@
     extractPlayers(result) {
       const data = (result && result.data) || result || {};
       return data.players || data.player_list || data.gamers || data.user_list || data.users || data.list || [];
+    },
+
+    extractRoomId(result) {
+      if (typeof result === "string" || typeof result === "number") return String(result);
+      const root = result && (result.data || result.payload || result.result || result);
+      if (typeof root === "string" || typeof root === "number") return String(root);
+      const room = root && (root.room || root.roomInfo || root.room_info || root);
+      return room && (room.room_id || room.roomId || room.id) ? String(room.room_id || room.roomId || room.id) : "";
     },
 
     exitRoom() {
@@ -605,7 +648,15 @@
       return String(found.room_id || found.roomId || found.id || "");
     },
 
-    callGravitySDK(action, params) {
+    async callGravitySDK(action, params) {
+      if (action === "AgentSDK.user.getMyUserInfo" && window.AgentSDK?.user?.getMyUserInfo) {
+        this.lastBridgeEvent = "AgentSDK.user.getMyUserInfo";
+        return this.withSdkTimeout(window.AgentSDK.user.getMyUserInfo(), action);
+      }
+      return this.callLegacyGravitySDK(action, params);
+    },
+
+    callLegacyGravitySDK(action, params) {
       return new Promise((resolve, reject) => {
         const requestId = `req_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
         const timer = window.setTimeout(() => {
@@ -622,7 +673,41 @@
       });
     },
 
-    callGravityRoomSDK(action, params) {
+    async callGravityRoomSDK(action, params) {
+      const directMethods = {
+        create_room: "create",
+        join_room: "join",
+        get_public_rooms: "getPublicRoomList",
+        exit: "exit"
+      };
+      const method = directMethods[action];
+      if (method && typeof window.AgentSDK?.room?.[method] === "function") {
+        this.lastBridgeEvent = `AgentSDK.room.${method}`;
+        const result = method === "exit" || method === "getPublicRoomList"
+          ? window.AgentSDK.room[method]()
+          : window.AgentSDK.room[method](params || {});
+        return this.withSdkTimeout(result, `AgentSDK.room.${method}`);
+      }
+      return this.callLegacyGravityRoomSDK(action, params);
+    },
+
+    withSdkTimeout(promise, label) {
+      return new Promise((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error(`${label} timeout`)), SDK_TIMEOUT_MS);
+        Promise.resolve(promise).then(
+          (value) => {
+            window.clearTimeout(timer);
+            resolve(value);
+          },
+          (error) => {
+            window.clearTimeout(timer);
+            reject(error);
+          }
+        );
+      });
+    },
+
+    callLegacyGravityRoomSDK(action, params) {
       return new Promise((resolve, reject) => {
         const requestId = `${action}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
         const timer = window.setTimeout(() => {
@@ -654,39 +739,33 @@
     async initGravityUser() {
       try {
         const params = new URLSearchParams(window.location.search);
-        const urlName = params.get("username");
-        const rawIcon = params.get("portrait") || params.get("avatar") || params.get("icon") || params.get("head_img") || params.get("headimgurl");
+        const urlName = params.get("username") || params.get("userName") || params.get("user_name") || params.get("nickname") || params.get("name");
+        const rawIcon = params.get("portrait") || params.get("avatar") || params.get("icon") || params.get("head_img") || params.get("headimgurl") || params.get("profile_image") || params.get("profileImage");
         const autoRoomId = params.get("room_id") || params.get("roomid");
         if (autoRoomId) {
           this.fillRoomId(autoRoomId);
           setTimeout(() => this.joinRoom(autoRoomId), 300);
         }
         if (urlName) {
-          this.localPlayerName = urlName;
-          this.localPlayerIcon = rawIcon ? decodeURIComponent(rawIcon) : null;
-          window.TierGame.setPlayerName(this.localPlayerName, this.localPlayerIcon);
+          this.applyUserIdentity({ name: urlName, icon: rawIcon || null });
           this.initRoomIdInput();
           this.registerReceiveMessage();
-          return;
+          return true;
         }
       } catch {}
 
       if (!this.isGravity) {
         window.TierGame.setPlayerName(this.localPlayerName, this.localPlayerIcon);
         this.refreshStatus("");
-        return;
+        return false;
       }
 
       try {
         this.refreshStatus("Gravityユーザー取得中...");
         const user = await this.callGravitySDK("AgentSDK.user.getMyUserInfo");
-        const normalized = this.normalizeUser(user);
-        if (normalized && normalized.name) {
-          this.gravityUserInfo = user;
-          this.localPlayerName = normalized.name;
-          this.localPlayerIcon = normalized.icon;
-          window.TierGame.setPlayerName(this.localPlayerName, this.localPlayerIcon);
-          this.refreshStatus("Gravityユーザー取得済み");
+        if (this.applyUserIdentity(user)) {
+          this.statusMessage = "";
+          this.refreshStatus();
         } else {
           this.refreshStatus(`ユーザー情報なし: ${JSON.stringify(user || {})}`.slice(0, 80));
         }
@@ -696,13 +775,14 @@
       }
       this.initRoomIdInput();
       this.registerReceiveMessage();
+      return this.localPlayerName !== "Player";
     },
 
     async initRoomIdInput() {
       try {
         if (window.AgentSDK && window.AgentSDK.room && typeof window.AgentSDK.room.getRoomId === "function") {
           const result = await window.AgentSDK.room.getRoomId();
-          const roomId = result && (result.room_id || result.roomId || result.data?.room_id || result.data?.roomId || result.data);
+          const roomId = this.extractRoomId(result);
           if (roomId) this.fillRoomId(roomId);
         }
       } catch (error) {
@@ -764,11 +844,12 @@
     },
 
     normalizeUser(raw) {
-      const user = (raw && raw.data) || (raw && raw.payload) || raw;
+      const root = (raw && raw.data) || (raw && raw.payload) || raw;
+      const user = root && (root.user || root.userInfo || root.user_info || root.profile || root);
       if (!user || typeof user !== "object") return null;
       return {
-        name: user.name || user.nickname || user.user_name || user.userName || user.nick_name || "",
-        icon: user.portrait || user.avatar || user.icon || user.head_img || user.headimgurl || user.profile_image || user.profileImage || null
+        name: user.name || user.nickname || user.username || user.user_name || user.userName || user.nick_name || user.nickName || "",
+        icon: user.portrait || user.avatar || user.icon || user.avatar_url || user.avatarUrl || user.head_img || user.headimgurl || user.profile_image || user.profileImage || null
       };
     },
 
@@ -791,14 +872,18 @@
     online.lastBridgeEvent = data.type || data.action || data.event || JSON.stringify(data).slice(0, 80);
     console.log("[HanafudaOnline] bridge message:", JSON.stringify(data).slice(0, 500));
 
-    if (data.type === "API_CALLBACK" && data.requestId) {
-      const req = online.gravityRequests[data.requestId];
-      if (!req) return;
+    const apiResponseId = data.requestId || data.id;
+    if (data.type === "API_CALLBACK" && apiResponseId && online.gravityRequests[apiResponseId]) {
+      const req = online.gravityRequests[apiResponseId];
       window.clearTimeout(req.timer);
-      if (data.error) req.reject(data.error);
+      if (data.error || data.success === false) req.reject(data.error || new Error(data.message || "API request failed"));
       else req.resolve(data.payload || data.result || data.data);
-      delete online.gravityRequests[data.requestId];
+      delete online.gravityRequests[apiResponseId];
       return;
+    }
+
+    if (data.type === "USER_INFO" || data.type === "user_info" || data.action === "AgentSDK.user.getMyUserInfo") {
+      online.applyUserIdentity(data.payload || data.result || data.data || data);
     }
 
     const responseId = data.actionId || data.actionld || data.requestId || data.reqId;
@@ -829,5 +914,5 @@
 
   window.TierOnline = online;
   online.bindControls();
-  online.initGravityUser();
+  online.identityPromise = online.initGravityUser();
 })();
