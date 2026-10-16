@@ -3,17 +3,17 @@ const MONTH_NAMES = ["一月", "二月", "三月", "四月", "五月", "六月",
 const MATCH_LENGTHS = [3, 6, 12];
 const MATCH_LENGTH_LABELS = { 3: "三局", 6: "六局", 12: "十二局" };
 const CAPTURE_GROUPS = [["bright", "光"], ["animal", "たね"], ["ribbon", "短冊"], ["chaff", "かす"]];
-const DRAW_REVEAL_DURATION = 2200;
-const CAPTURE_FLIGHT_DURATION = 1300;
-const CAPTURE_FLIGHT_STAGGER = 110;
+const DRAW_REVEAL_DURATION = 2600;
+const CAPTURE_FLIGHT_DURATION = 1550;
+const CAPTURE_FLIGHT_STAGGER = 130;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
-const PLAY_FLIGHT_DURATION = 1150;
-const DRAW_TO_FIELD_DURATION = 1200;
-const MATCH_SLIDE_DURATION = 650;
-const PLAY_LAND_HOLD_DURATION = 400;
-const DRAW_TO_FIELD_HOLD_DURATION = 360;
-const MATCH_LAND_HOLD_DURATION = 300;
-const CAPTURE_LAND_HOLD_DURATION = 380;
+const PLAY_FLIGHT_DURATION = 1380;
+const DRAW_TO_FIELD_DURATION = 1440;
+const MATCH_SLIDE_DURATION = 780;
+const PLAY_LAND_HOLD_DURATION = 460;
+const DRAW_TO_FIELD_HOLD_DURATION = 420;
+const MATCH_LAND_HOLD_DURATION = 350;
+const CAPTURE_LAND_HOLD_DURATION = 440;
 const REDUCED_DRAW_REVEAL_DURATION = 380;
 const REDUCED_PLAY_FLIGHT_DURATION = 260;
 const REDUCED_DRAW_TO_FIELD_DURATION = 280;
@@ -23,13 +23,15 @@ const REDUCED_PLAY_LAND_HOLD_DURATION = 60;
 const REDUCED_DRAW_TO_FIELD_HOLD_DURATION = 60;
 const REDUCED_MATCH_LAND_HOLD_DURATION = 50;
 const REDUCED_CAPTURE_LAND_HOLD_DURATION = 60;
-const LAYOUT_REFLOW_DURATION = 480;
+const LAYOUT_REFLOW_DURATION = 580;
 const REDUCED_LAYOUT_REFLOW_DURATION = 300;
-const OPENING_DRAW_DURATION = 3800;
-const REDUCED_OPENING_DRAW_DURATION = 1400;
-const ROUND_DEAL_CARD_DURATION = 680;
-const ROUND_DEAL_STAGGER = 90;
-const ROUND_DEAL_HOLD_DURATION = 430;
+const OPENING_REVEAL_DURATION = 4200;
+const REDUCED_OPENING_REVEAL_DURATION = 1400;
+const OPENING_AI_PICK_DELAY = 1100;
+const REDUCED_OPENING_AI_PICK_DELAY = 320;
+const ROUND_DEAL_CARD_DURATION = 820;
+const ROUND_DEAL_STAGGER = 105;
+const ROUND_DEAL_HOLD_DURATION = 480;
 const REDUCED_ROUND_DEAL_CARD_DURATION = 260;
 const REDUCED_ROUND_DEAL_STAGGER = 24;
 const REDUCED_ROUND_DEAL_HOLD_DURATION = 90;
@@ -189,8 +191,8 @@ function dealRound() {
   scheduleRoundDealCompletion(state.dealSequence);
 }
 
-function openingDrawDuration() {
-  return prefersReducedMotion() ? REDUCED_OPENING_DRAW_DURATION : OPENING_DRAW_DURATION;
+function openingRevealDuration() {
+  return prefersReducedMotion() ? REDUCED_OPENING_REVEAL_DURATION : OPENING_REVEAL_DURATION;
 }
 
 function roundDealDuration() {
@@ -203,11 +205,16 @@ function roundDealDuration() {
 
 function drawOpeningCards() {
   const pool = shuffle(window.HanafudaCards.cards.map((card) => card.id));
-  while (pool.length >= 2) {
-    const cards = [pool.pop(), pool.pop()];
-    if (CARD_MAP.get(cards[0])?.month !== CARD_MAP.get(cards[1])?.month) return cards;
+  const cards = [];
+  const months = new Set();
+  while (pool.length && cards.length < 3) {
+    const cardId = pool.pop();
+    const month = CARD_MAP.get(cardId)?.month;
+    if (!month || months.has(month)) continue;
+    months.add(month);
+    cards.push(cardId);
   }
-  return ["1-1", "12-1"];
+  return cards.length === 3 ? cards : ["1-1", "6-1", "12-1"];
 }
 
 function startOpeningDraw() {
@@ -216,18 +223,18 @@ function startOpeningDraw() {
   clearTimeout(phaseTimer);
   clearTimeout(interactionUnlockTimer);
   const cards = drawOpeningCards();
-  const winnerSeat = CARD_MAP.get(cards[0]).month < CARD_MAP.get(cards[1]).month ? 0 : 1;
+  const chooserSeat = Math.random() < .5 ? 0 : 1;
   state.matchToken = Date.now();
   state.dealSequence = 0;
-  state.dealer = winnerSeat;
-  state.currentPlayer = winnerSeat;
+  state.dealer = 0;
+  state.currentPlayer = chooserSeat;
   state.hands = [[], []];
   state.handCounts = [0, 0];
   state.field = [];
   state.deck = [];
   state.captures = [[], []];
-  state.phase = "openingDraw";
-  state.pending = { cards, winnerSeat };
+  state.phase = "openingPick";
+  state.pending = { cards, choices: [null, null], chooserSeat };
   state.lastDeclared = [0, 0];
   state.koiCount = [0, 0];
   state.lastResult = null;
@@ -244,11 +251,60 @@ function startOpeningDraw() {
   drawFlightClones.forEach((element) => element.remove());
   drawFlightClones.clear();
   persistAndRender();
-  if (isAuthoritativeGame()) {
-    phaseTimer = window.setTimeout(() => {
-      if (state.phase === "openingDraw" && state.pending?.winnerSeat === winnerSeat) dealRound();
-    }, openingDrawDuration());
+  scheduleOpeningAiPick();
+}
+
+function scheduleOpeningAiPick() {
+  clearTimeout(aiTimer);
+  if (mode !== "solo" || state.phase !== "openingPick" || state.pending?.chooserSeat !== 1) return;
+  const delay = prefersReducedMotion() ? REDUCED_OPENING_AI_PICK_DELAY : OPENING_AI_PICK_DELAY;
+  aiTimer = window.setTimeout(() => {
+    if (state.phase !== "openingPick" || state.pending?.chooserSeat !== 1) return;
+    const used = new Set((state.pending.choices || []).filter(Number.isInteger));
+    const available = [0, 1, 2].filter((index) => !used.has(index));
+    const choice = available[Math.floor(Math.random() * available.length)];
+    chooseOpeningCard(choice, 1);
+  }, delay);
+}
+
+function chooseOpeningCard(cardIndex, actorSeat = localSeat()) {
+  if (!isAuthoritativeGame() || state.phase !== "openingPick" || !state.pending) return;
+  if (state.pending.chooserSeat !== actorSeat) return;
+  if (!Number.isInteger(cardIndex) || cardIndex < 0 || cardIndex > 2) return;
+  const choices = Array.isArray(state.pending.choices) ? [...state.pending.choices] : [null, null];
+  if (choices.some((choice) => choice === cardIndex)) return;
+  choices[actorSeat] = cardIndex;
+  const nextSeat = 1 - actorSeat;
+
+  if (!Number.isInteger(choices[nextSeat])) {
+    state.currentPlayer = nextSeat;
+    state.pending = { ...state.pending, choices, chooserSeat: nextSeat };
+    persistAndRender();
+    scheduleOpeningAiPick();
+    return;
   }
+
+  clearTimeout(aiTimer);
+  const selectedCards = choices.map((choice) => state.pending.cards[choice]);
+  const winnerSeat = CARD_MAP.get(selectedCards[0])?.month < CARD_MAP.get(selectedCards[1])?.month ? 0 : 1;
+  state.dealer = winnerSeat;
+  state.currentPlayer = winnerSeat;
+  state.phase = "openingReveal";
+  state.pending = { ...state.pending, choices, chooserSeat: null, winnerSeat };
+  interactionLocked = true;
+  persistAndRender();
+  phaseTimer = window.setTimeout(() => {
+    if (state.phase === "openingReveal" && state.pending?.winnerSeat === winnerSeat) dealRound();
+  }, openingRevealDuration());
+}
+
+function submitOpeningCardPick(cardIndex) {
+  if (state.phase !== "openingPick" || state.pending?.chooserSeat !== localSeat()) return;
+  if (window.TierOnline?.shouldSendAction()) {
+    window.TierOnline.sendAction({ type: "openingPick", cardIndex, playerName: localPlayerName });
+    return;
+  }
+  chooseOpeningCard(cardIndex, localSeat());
 }
 
 function scheduleRoundDealCompletion(sequence) {
@@ -647,7 +703,7 @@ function isAuthoritativeGame() {
 
 function cutInHoldDuration(kind) {
   if (prefersReducedMotion()) return kind === "yaku" ? 1400 : 1200;
-  return kind === "yaku" ? 3200 : 2700;
+  return kind === "yaku" ? 3600 : 3100;
 }
 
 function scheduleYakuChoice(actorSeat) {
@@ -1643,15 +1699,18 @@ function renderDeck() {
 
 function renderRoundIntro() {
   if (!els.roundIntro) return;
+  const isPicking = state.phase === "openingPick";
+  const isRevealing = state.phase === "openingReveal";
   const cards = state.pending?.cards;
-  if (state.phase !== "openingDraw" || !Array.isArray(cards) || cards.length !== 2) {
+  if ((!isPicking && !isRevealing) || !Array.isArray(cards) || cards.length !== 3) {
     els.roundIntro.classList.add("hidden");
     els.roundIntro.replaceChildren();
     return;
   }
 
-  const winnerSeat = state.pending.winnerSeat;
-  const key = `${state.matchToken}:${cards.join(",")}:${winnerSeat}`;
+  const choices = Array.isArray(state.pending?.choices) ? state.pending.choices : [null, null];
+  const winnerSeat = state.pending?.winnerSeat;
+  const key = `${state.matchToken}:${state.phase}:${cards.join(",")}:${choices.join(",")}:${winnerSeat}`;
   els.roundIntro.classList.remove("hidden");
   if (renderedOpeningDrawKey === key && els.roundIntro.childElementCount) return;
   renderedOpeningDrawKey = key;
@@ -1661,42 +1720,94 @@ function renderRoundIntro() {
   panel.className = "opening-draw-panel";
   const heading = document.createElement("header");
   heading.className = "opening-draw-heading";
-  heading.innerHTML = '<span>対局のはじまり</span><h2>先攻決め</h2><p>早い月の札を引いた方が先攻</p>';
-  const cardRow = document.createElement("div");
-  cardRow.className = "opening-draw-cards";
+  heading.innerHTML = '<span>対局のはじまり</span><h2>先攻決め</h2><p>二人が一枚ずつ選び、早い月を引いた方が先攻</p>';
 
-  cards.forEach((id, seat) => {
-    const card = CARD_MAP.get(id);
-    const spot = document.createElement("article");
-    spot.className = `opening-draw-spot${seat === winnerSeat ? " winner" : ""}`;
-    spot.style.setProperty("--draw-delay", `${420 + seat * 280}ms`);
-    spot.style.setProperty("--month-delay", `${1380 + seat * 280}ms`);
-    const player = document.createElement("strong");
-    player.className = "opening-draw-player";
-    player.textContent = state.players[seat] || (seat === localSeat() ? "あなた" : "相手");
-    const stage = document.createElement("div");
-    stage.className = "opening-card-stage";
-    const back = document.createElement("span");
-    back.className = "opening-card-back";
-    const face = createCardElement(id);
-    face.classList.add("opening-card-face");
-    const month = document.createElement("span");
-    month.className = "opening-card-month";
-    month.textContent = `${MONTH_NAMES[(card?.month || 1) - 1]}・${card?.monthName || "札"}`;
-    const first = document.createElement("span");
-    first.className = "opening-first-mark";
-    first.textContent = "先攻";
-    stage.append(back, face);
-    spot.append(player, stage, month, first);
-    cardRow.append(spot);
+  const playerStatus = document.createElement("div");
+  playerStatus.className = "opening-player-status";
+  [0, 1].forEach((seat) => {
+    const player = document.createElement("span");
+    const picked = Number.isInteger(choices[seat]);
+    const active = isPicking && state.pending?.chooserSeat === seat;
+    player.className = `${picked ? "picked" : ""}${active ? " active" : ""}`.trim();
+    const name = document.createElement("b");
+    name.textContent = state.players[seat] || (seat === localSeat() ? "あなた" : "相手");
+    const status = document.createElement("small");
+    status.textContent = picked ? "選択済み" : active ? "選択中" : "待機";
+    player.append(name, status);
+    playerStatus.append(player);
   });
 
-  const result = document.createElement("p");
-  result.className = "opening-draw-result";
-  result.innerHTML = `<strong>${escapeHtml(state.players[winnerSeat] || "プレイヤー")}</strong><span>が先攻</span>`;
-  panel.append(heading, cardRow, result);
+  const cardRow = document.createElement("div");
+  cardRow.className = "opening-choice-cards";
+  const canChoose = isPicking && state.pending?.chooserSeat === localSeat();
+
+  cards.forEach((id, index) => {
+    const pickedSeat = choices.findIndex((choice) => choice === index);
+    const isPicked = pickedSeat >= 0;
+    const isWinner = isRevealing && pickedSeat === winnerSeat;
+    const card = CARD_MAP.get(id);
+    const choice = document.createElement("button");
+    choice.type = "button";
+    choice.className = `opening-card-choice${isPicked ? " picked" : ""}${isRevealing && isPicked ? " revealing" : ""}${isWinner ? " winner" : ""}${isRevealing && !isPicked ? " unused" : ""}`;
+    choice.disabled = !canChoose || isPicked;
+    choice.setAttribute("aria-pressed", String(isPicked));
+    choice.setAttribute("aria-label", isPicked
+      ? `${index + 1}枚目、${state.players[pickedSeat] || "プレイヤー"}が選択済み`
+      : `${index + 1}枚目の裏札を選ぶ`);
+    const stage = document.createElement("div");
+    stage.className = `opening-card-stage${isRevealing && isPicked ? " is-revealing" : ""}`;
+    const flipDelay = 520 + Math.max(0, pickedSeat) * 180;
+    choice.style.setProperty("--flip-delay", `${flipDelay}ms`);
+    choice.style.setProperty("--meta-delay", `${flipDelay + 760}ms`);
+    const back = document.createElement("span");
+    back.className = "opening-card-back";
+    stage.append(back);
+    if (isRevealing && isPicked && id && CARD_MAP.has(id)) {
+      const face = createCardElement(id);
+      face.classList.add("opening-card-face");
+      stage.append(face);
+    }
+    if (isPicked) {
+      const owner = document.createElement("span");
+      owner.className = "opening-card-owner";
+      owner.textContent = state.players[pickedSeat] || "選択済み";
+      stage.append(owner);
+    }
+    if (isWinner) {
+      const first = document.createElement("span");
+      first.className = "opening-first-mark";
+      first.textContent = "先攻";
+      stage.append(first);
+    }
+    const meta = document.createElement("span");
+    meta.className = "opening-card-month";
+    meta.textContent = isRevealing && isPicked && card
+      ? `${MONTH_NAMES[card.month - 1]}・${card.monthName}`
+      : isPicked ? "選択済み" : "裏札";
+    choice.append(stage, meta);
+    if (canChoose && !isPicked) {
+      choice.addEventListener("click", () => {
+        cardRow.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+        submitOpeningCardPick(index);
+      });
+    }
+    cardRow.append(choice);
+  });
+
+  const announcement = document.createElement("p");
+  announcement.className = `opening-draw-result${isRevealing ? " revealed" : ""}`;
+  if (isRevealing) {
+    announcement.innerHTML = `<strong>${escapeHtml(state.players[winnerSeat] || "プレイヤー")}</strong><span>が先攻</span>`;
+  } else if (canChoose) {
+    announcement.innerHTML = "<strong>あなたの番</strong><span>裏札を一枚選ぶ</span>";
+  } else {
+    announcement.innerHTML = `<strong>${escapeHtml(state.players[state.pending?.chooserSeat] || "相手")}</strong><span>が札を選んでいます</span>`;
+  }
+  panel.append(heading, playerStatus, cardRow, announcement);
   els.roundIntro.append(panel);
-  els.roundIntro.setAttribute("aria-label", `${state.players[winnerSeat] || "プレイヤー"}が早い月の札を引き、先攻に決まりました`);
+  els.roundIntro.setAttribute("aria-label", isRevealing
+    ? `${state.players[winnerSeat] || "プレイヤー"}が早い月の札を引き、先攻に決まりました`
+    : announcement.textContent);
 }
 
 function render() {
@@ -1822,8 +1933,13 @@ function renderTurnBanner(self) {
   const turnActor = Number.isInteger(state.pending?.actorSeat) ? state.pending.actorSeat : state.currentPlayer;
   const opponentTurn = ["play", "select", "capture", "draw", "drawReady", "drawMoving", "yakuReveal", "koi"].includes(state.phase)
     && turnActor !== self;
-  if (state.phase === "openingDraw") text = "先攻を決めています";
-  else if (state.phase === "dealing") text = "札を配っています";
+  if (state.phase === "openingPick") {
+    text = state.pending?.chooserSeat === self
+      ? "裏札を一枚選ぶ"
+      : `${state.players[state.pending?.chooserSeat] || "相手"}が札を選んでいます`;
+  }
+  else if (state.phase === "openingReveal") text = `${state.players[state.pending?.winnerSeat] || "プレイヤー"}が先攻`;
+  else if (state.phase === "dealing") text = `${state.players[state.dealer] || "プレイヤー"}が先攻・札を配っています`;
   else if (opponentTurn) text = "相手の番";
   else if (state.phase === "select") {
     const pendingCard = CARD_MAP.get(state.pending?.cardId);
@@ -1848,7 +1964,8 @@ function renderTurnBanner(self) {
   }
   else text = state.currentPlayer === self ? "あなたの番" : `${state.players[state.currentPlayer]}の番`;
   els.turnBanner.textContent = text;
-  const interactive = (state.phase === "play" && state.currentPlayer === self)
+  const interactive = (state.phase === "openingPick" && state.pending?.chooserSeat === self)
+    || (state.phase === "play" && state.currentPlayer === self)
     || (state.phase === "select" && state.pending?.actorSeat === self)
     || (state.phase === "drawReady" && state.pending?.actorSeat === self);
   els.turnBanner.classList.toggle("waiting", !interactive);
@@ -2050,6 +2167,9 @@ function escapeHtml(value) {
 function exportOnlineStateForPlayer() {
   const copy = JSON.parse(JSON.stringify(state));
   copy.hands = [[], []];
+  if (copy.phase === "openingPick" && Array.isArray(copy.pending?.cards)) {
+    copy.pending.cards = copy.pending.cards.map(() => null);
+  }
   return copy;
 }
 
@@ -2167,6 +2287,7 @@ function seatForPlayer(playerName) {
 function applyRemoteAction(action) {
   if (!action || typeof action !== "object") return;
   const seat = seatForPlayer(action.playerName);
+  if (action.type === "openingPick" && seat >= 0) chooseOpeningCard(Number(action.cardIndex), seat);
   if (action.type === "play" && seat >= 0) playCard(action.cardId, seat);
   if (action.type === "match" && seat >= 0) chooseMatch(action.cardId, seat);
   if (action.type === "drawConfirm" && seat >= 0) resolveDraw(action.cardId || null, seat);
