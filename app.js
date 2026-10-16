@@ -6,6 +6,10 @@ const CAPTURE_GROUPS = [["bright", "光"], ["animal", "たね"], ["ribbon", "短
 const DRAW_REVEAL_DURATION = 3600;
 const CAPTURE_FLIGHT_DURATION = 2200;
 const CAPTURE_FLIGHT_STAGGER = 170;
+const MOBILE_DRAW_REVEAL_DURATION = 5200;
+const MOBILE_CAPTURE_FLIGHT_DURATION = 3200;
+const MOBILE_CAPTURE_FLIGHT_STAGGER = 240;
+const MOBILE_CAPTURE_LAND_HOLD_DURATION = 760;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
 const PLAY_FLIGHT_DURATION = 1380;
 const DRAW_TO_FIELD_DURATION = 1440;
@@ -542,8 +546,8 @@ function animateCapturedCards(actorSeat, ids) {
         { transform: `translate3d(${dx}px, ${dy}px, 0) rotate(0deg) scale(${landingScale})`, opacity: 1, filter: "brightness(1)" }
       ];
     const animation = clone.animate(keyframes, {
-      duration: reducedMotion ? REDUCED_CAPTURE_FLIGHT_DURATION : CAPTURE_FLIGHT_DURATION,
-      delay: index * (reducedMotion ? 30 : CAPTURE_FLIGHT_STAGGER),
+      duration: captureFlightDuration(),
+      delay: index * captureFlightStagger(),
       easing: "cubic-bezier(.16, 1, .3, 1)",
       fill: "forwards"
     });
@@ -566,7 +570,7 @@ async function captureCards(actorSeat, ids) {
   state.pending = { actorSeat, capturedCards: [...ids] };
   persistAndRender();
   await captureMotion;
-  await waitForMotion(prefersReducedMotion() ? REDUCED_CAPTURE_LAND_HOLD_DURATION : CAPTURE_LAND_HOLD_DURATION);
+  await waitForMotion(captureLandHoldDuration());
 }
 
 async function playCard(cardId, actorSeat = localSeat()) {
@@ -881,8 +885,28 @@ function prefersReducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
+function usesMobileMotionProfile() {
+  return window.matchMedia?.("(max-width: 720px), (hover: none), (pointer: coarse)").matches;
+}
+
 function drawRevealDuration() {
-  return prefersReducedMotion() ? REDUCED_DRAW_REVEAL_DURATION : DRAW_REVEAL_DURATION;
+  if (prefersReducedMotion()) return REDUCED_DRAW_REVEAL_DURATION;
+  return usesMobileMotionProfile() ? MOBILE_DRAW_REVEAL_DURATION : DRAW_REVEAL_DURATION;
+}
+
+function captureFlightDuration() {
+  if (prefersReducedMotion()) return REDUCED_CAPTURE_FLIGHT_DURATION;
+  return usesMobileMotionProfile() ? MOBILE_CAPTURE_FLIGHT_DURATION : CAPTURE_FLIGHT_DURATION;
+}
+
+function captureFlightStagger() {
+  if (prefersReducedMotion()) return 30;
+  return usesMobileMotionProfile() ? MOBILE_CAPTURE_FLIGHT_STAGGER : CAPTURE_FLIGHT_STAGGER;
+}
+
+function captureLandHoldDuration() {
+  if (prefersReducedMotion()) return REDUCED_CAPTURE_LAND_HOLD_DURATION;
+  return usesMobileMotionProfile() ? MOBILE_CAPTURE_LAND_HOLD_DURATION : CAPTURE_LAND_HOLD_DURATION;
 }
 
 function waitForMotion(duration) {
@@ -2261,7 +2285,7 @@ async function applyOnlineState(nextState) {
   releaseInteractionLock();
   await captureMotion;
   if (addedBySeat.some((ids) => ids.length)) {
-    await waitForMotion(prefersReducedMotion() ? REDUCED_CAPTURE_LAND_HOLD_DURATION : CAPTURE_LAND_HOLD_DURATION);
+    await waitForMotion(captureLandHoldDuration());
   }
 }
 
