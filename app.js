@@ -8,7 +8,7 @@ const DRAW_REVEAL_DURATION = 400;
 const CAPTURE_FLIGHT_DURATION = 700;
 const CAPTURE_FLIGHT_STAGGER = 170;
 const FIELD_OVERLAP_OFFSET_RATIO = .2;
-const PLAY_FLIGHT_DURATION = 1000;
+const PLAY_FLIGHT_DURATION = 700;
 const DRAW_TO_FIELD_DURATION = 500;
 const MATCH_SLIDE_DURATION = 300;
 const PLAY_LAND_HOLD_DURATION = 200;
@@ -443,18 +443,42 @@ function animateRoundDeal() {
   const duration = reduced ? REDUCED_ROUND_DEAL_CARD_DURATION : ROUND_DEAL_CARD_DURATION;
   const stagger = reduced ? REDUCED_ROUND_DEAL_STAGGER : ROUND_DEAL_STAGGER;
   targets.forEach((element, index) => {
-    const rect = element.getBoundingClientRect();
-    const dx = sourceX - (rect.left + rect.width / 2);
-    const dy = sourceY - (rect.top + rect.height / 2);
-    element.animate([
-      { translate: `${dx}px ${dy}px`, scale: reduced ? ".96" : ".82", opacity: 0, filter: "brightness(.72)" },
-      { offset: reduced ? .35 : .22, opacity: 1, filter: "brightness(1.16)" },
-      { translate: "0px 0px", scale: "1", opacity: 1, filter: "brightness(1)" }
+    const targetRect = element.getBoundingClientRect();
+    const sourceLeft = sourceX - targetRect.width / 2;
+    const sourceTop = sourceY - targetRect.height / 2;
+    const dx = targetRect.left - sourceLeft;
+    const dy = targetRect.top - sourceTop;
+    const sourceScale = Math.min(deckRect.width / targetRect.width, deckRect.height / targetRect.height);
+    const lift = Math.min(14, Math.max(6, Math.abs(dy) * .025));
+    const clone = element.cloneNode(true);
+    clone.removeAttribute("id");
+    clone.removeAttribute("tabindex");
+    if ("disabled" in clone) clone.disabled = true;
+    clone.setAttribute("aria-hidden", "true");
+    clone.classList.add("card-flight", "deal-flight");
+    Object.assign(clone.style, {
+      left: `${sourceLeft}px`,
+      top: `${sourceTop}px`,
+      width: `${targetRect.width}px`,
+      height: `${targetRect.height}px`
+    });
+    element.classList.add("dealing-target");
+    document.body.append(clone);
+    const animation = clone.animate([
+      { offset: 0, transform: `translate3d(0, 0, 0) scale(${sourceScale})`, opacity: 0, filter: "brightness(.76)" },
+      { offset: .03, transform: `translate3d(0, 0, 0) scale(${sourceScale})`, opacity: 1, filter: "brightness(.9)" },
+      { offset: reduced ? .35 : .24, transform: `translate3d(${dx * .12}px, ${dy * .08 - lift}px, 0) rotate(-.8deg) scale(${sourceScale + (1 - sourceScale) * .2})`, opacity: 1, filter: "brightness(1.15)" },
+      { offset: .82, transform: `translate3d(${dx * .88}px, ${dy * .84 - 3}px, 0) rotate(.35deg) scale(${sourceScale + (1 - sourceScale) * .9})`, opacity: 1, filter: "brightness(1.06)" },
+      { transform: `translate3d(${dx}px, ${dy}px, 0) rotate(0deg) scale(1)`, opacity: 1, filter: "brightness(1)" }
     ], {
       duration,
       delay: index * stagger,
       easing: CARD_MOVE_EASING,
-      fill: "backwards"
+      fill: "both"
+    });
+    animation.finished.catch(() => {}).finally(() => {
+      element.classList.remove("dealing-target");
+      clone.remove();
     });
   });
 }
