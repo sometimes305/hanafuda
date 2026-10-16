@@ -3,6 +3,7 @@ const MONTH_NAMES = ["一月", "二月", "三月", "四月", "五月", "六月",
 const MATCH_LENGTHS = [3, 6, 12];
 const MATCH_LENGTH_LABELS = { 3: "三局", 6: "六局", 12: "十二局" };
 const CAPTURE_GROUPS = [["bright", "光"], ["animal", "たね"], ["ribbon", "短冊"], ["chaff", "かす"]];
+const CARD_MOVE_EASING = "cubic-bezier(.2, .45, .65, .95)";
 const DRAW_REVEAL_DURATION = 950;
 const CARD_TRAVEL_DURATION = 1200;
 const CAPTURE_FLIGHT_DURATION = CARD_TRAVEL_DURATION;
@@ -413,7 +414,7 @@ function animateCardReflow(elements, previousRects, keyFor) {
     element.animate([
       { translate: `${dx}px ${dy}px` },
       { translate: "0px 0px" }
-    ], { duration, easing: "cubic-bezier(.16, 1, .3, 1)" });
+    ], { duration, easing: CARD_MOVE_EASING });
   });
 }
 
@@ -453,7 +454,7 @@ function animateRoundDeal() {
     ], {
       duration,
       delay: index * stagger,
-      easing: "cubic-bezier(.16, 1, .3, 1)",
+      easing: CARD_MOVE_EASING,
       fill: "backwards"
     });
   });
@@ -545,7 +546,7 @@ function animateCapturedCards(actorSeat, ids) {
     const animation = clone.animate(keyframes, {
       duration: captureFlightDuration(),
       delay: index * captureFlightStagger(),
-      easing: "cubic-bezier(.16, 1, .3, 1)",
+      easing: CARD_MOVE_EASING,
       fill: "forwards"
     });
     return animation.finished.catch(() => {}).finally(() => {
@@ -1029,7 +1030,7 @@ async function animateDrawnCardToField(cardId, fieldCardId = null, options = {})
       { transform: `translate3d(${dx}px, ${dy}px, 0) rotate(0deg) scale(1)`, filter: "brightness(1)" }
     ], {
       duration: reducedMotion ? REDUCED_DRAW_TO_FIELD_DURATION : DRAW_TO_FIELD_DURATION,
-      easing: "cubic-bezier(.16, 1, .3, 1)",
+      easing: CARD_MOVE_EASING,
       fill: "forwards"
     });
   await animation.finished.catch(() => {});
@@ -1099,7 +1100,7 @@ async function animatePlayedCard(sourceElement, cardId, options = {}) {
     ];
   const animation = clone.animate(keyframes, {
     duration: reducedMotion ? REDUCED_PLAY_FLIGHT_DURATION : PLAY_FLIGHT_DURATION,
-    easing: "cubic-bezier(.16, 1, .3, 1)",
+    easing: CARD_MOVE_EASING,
     fill: "forwards"
   });
   await animation.finished.catch(() => {});
@@ -1197,7 +1198,7 @@ async function animatePendingCardToMatch(cardId, fieldCardId) {
       { transform: `translate3d(${dx}px, ${dy}px, 0) rotate(0deg) scale(${scale})`, filter: "brightness(1)" }
     ], {
       duration: reducedMotion ? REDUCED_MATCH_SLIDE_DURATION : MATCH_SLIDE_DURATION,
-      easing: "cubic-bezier(.16, 1, .3, 1)",
+      easing: CARD_MOVE_EASING,
       fill: "forwards"
     });
   await animation.finished.catch(() => {});
