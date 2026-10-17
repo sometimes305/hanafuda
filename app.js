@@ -104,6 +104,7 @@ function createInitialState() {
     pending: null,
     lastDeclared: [0, 0],
     koiCount: [0, 0],
+    koiDeclarer: null,
     lastResult: null,
     message: ""
   };
@@ -168,17 +169,18 @@ function dealRound() {
   let deck;
   let hands;
   let field;
-  let attempts = 0;
+  let initialHandWins;
   do {
     deck = shuffle(window.HanafudaCards.cards.map((card) => card.id));
     hands = [[], []];
-    for (let i = 0; i < 8; i += 1) {
-      hands[0].push(deck.pop());
-      hands[1].push(deck.pop());
+    field = [];
+    for (let batch = 0; batch < 4; batch += 1) {
+      field.push(deck.pop(), deck.pop());
+      hands[1 - state.dealer].push(deck.pop(), deck.pop());
+      hands[state.dealer].push(deck.pop(), deck.pop());
     }
-    field = deck.splice(-8);
-    attempts += 1;
-  } while (fieldHasFourOfMonth(field) && attempts < 50);
+    initialHandWins = hands.map(initialHandYaku);
+  } while (fieldHasFourOfMonth(field) || initialHandWins.filter(Boolean).length > 1);
   state.hands = hands;
   state.field = field;
   state.deck = deck;
@@ -187,9 +189,16 @@ function dealRound() {
   state.currentPlayer = state.dealer;
   state.dealSequence = Number(state.dealSequence || 0) + 1;
   state.phase = "dealing";
-  state.pending = { dealSequence: state.dealSequence };
+  const initialWinnerSeat = initialHandWins.findIndex(Boolean);
+  state.pending = {
+    dealSequence: state.dealSequence,
+    initialHandWin: initialWinnerSeat >= 0
+      ? { actorSeat: initialWinnerSeat, name: initialHandWins[initialWinnerSeat] }
+      : null
+  };
   state.lastDeclared = [0, 0];
   state.koiCount = [0, 0];
+  state.koiDeclarer = null;
   state.lastResult = null;
   state.message = "";
   sortHands();
@@ -243,6 +252,7 @@ function startOpeningDraw() {
   state.pending = { cards, choices: [null, null], chooserSeat };
   state.lastDeclared = [0, 0];
   state.koiCount = [0, 0];
+  state.koiDeclarer = null;
   state.lastResult = null;
   state.message = "";
   interactionUnlockTimer = null;
@@ -318,6 +328,22 @@ function scheduleRoundDealCompletion(sequence) {
   clearTimeout(phaseTimer);
   phaseTimer = window.setTimeout(() => {
     if (state.phase !== "dealing" || state.dealSequence !== sequence) return;
+    const initialHandWin = state.pending?.initialHandWin;
+    if (initialHandWin && Number.isInteger(initialHandWin.actorSeat)) {
+      state.phase = "yakuReveal";
+      state.pending = {
+        actorSeat: initialHandWin.actorSeat,
+        yaku: [`${initialHandWin.name} 6文`],
+        points: 6,
+        potentialPoints: 6,
+        awardedPoints: 6,
+        forced: true,
+        scoreNotes: ["配札時に成立"]
+      };
+      persistAndRender();
+      scheduleYakuChoice(initialHandWin.actorSeat);
+      return;
+    }
     state.phase = "play";
     state.pending = null;
     interactionLocked = false;
@@ -325,6 +351,18 @@ function scheduleRoundDealCompletion(sequence) {
     flushQueuedInput();
     scheduleAiIfNeeded();
   }, roundDealDuration());
+}
+
+function initialHandYaku(hand) {
+  const monthCounts = hand.reduce((counts, id) => {
+    const month = CARD_MAP.get(id)?.month;
+    if (month) counts[month] = (counts[month] || 0) + 1;
+    return counts;
+  }, {});
+  const counts = Object.values(monthCounts);
+  if (counts.includes(4)) return "手四";
+  if (counts.filter((count) => count === 2).length === 4) return "くっつき";
+  return null;
 }
 
 function fieldHasFourOfMonth(field) {
@@ -436,11 +474,15 @@ function animateRoundDeal() {
   const ownCards = [...els.hand.querySelectorAll(".card")];
   const opponentCards = [...els.opponentHand.querySelectorAll(".card")];
   const fieldCards = [...els.field.querySelectorAll(".card")];
+  const cardsBySeat = [];
+  cardsBySeat[self] = ownCards;
+  cardsBySeat[1 - self] = opponentCards;
   const targets = [];
-  for (let index = 0; index < 8; index += 1) {
-    if (opponentCards[index]) targets.push(opponentCards[index]);
-    if (fieldCards[index]) targets.push(fieldCards[index]);
-    if (ownCards[index]) targets.push(ownCards[index]);
+  for (let batch = 0; batch < 4; batch += 1) {
+    const start = batch * 2;
+    targets.push(...fieldCards.slice(start, start + 2));
+    targets.push(...cardsBySeat[1 - state.dealer].slice(start, start + 2));
+    targets.push(...cardsBySeat[state.dealer].slice(start, start + 2));
   }
   const sourceX = deckRect.left + deckRect.width / 2;
   const sourceY = deckRect.top + deckRect.height / 2;
@@ -711,22 +753,38 @@ async function resolveDraw(fieldCardId, actorSeat = localSeat(), options = {}) {
 function finishResolution(actorSeat) {
   const result = evaluateYaku(state.captures[actorSeat]);
   if (result.points > state.lastDeclared[actorSeat]) {
-    if (!state.hands[0].length && !state.hands[1].length) {
-      let forcedPoints = result.points;
-      if (state.koiCount[actorSeat] > 0) forcedPoints *= 2;
-      state.phase = "yakuReveal";
-      state.pending = { actorSeat, yaku: result.yaku, points: result.points, potentialPoints: forcedPoints, forced: true, awardedPoints: forcedPoints };
-      persistAndRender();
-      scheduleYakuChoice(actorSeat);
-      return;
-    }
+    const scoring = calculateRoundScore(result.points, actorSeat);
+    const forced = Number.isInteger(state.koiDeclarer)
+      || (!state.hands[0].length && !state.hands[1].length);
     state.phase = "yakuReveal";
-    state.pending = { actorSeat, yaku: result.yaku, points: result.points, potentialPoints: result.points * (state.koiCount[actorSeat] > 0 ? 2 : 1) };
+    state.pending = {
+      actorSeat,
+      yaku: result.yaku,
+      points: result.points,
+      potentialPoints: scoring.awardedPoints,
+      awardedPoints: scoring.awardedPoints,
+      scoreNotes: scoring.scoreNotes,
+      forced
+    };
     persistAndRender();
     scheduleYakuChoice(actorSeat);
     return;
   }
   endTurn();
+}
+
+function calculateRoundScore(points, actorSeat) {
+  let awardedPoints = points;
+  const scoreNotes = [];
+  if (points >= 7) {
+    awardedPoints *= 2;
+    scoreNotes.push("7文以上・倍付け");
+  }
+  if (Number.isInteger(state.koiDeclarer) && state.koiDeclarer !== actorSeat) {
+    awardedPoints *= 2;
+    scoreNotes.push("こいこい返し・倍付け");
+  }
+  return { awardedPoints, scoreNotes };
 }
 
 function isAuthoritativeGame() {
@@ -766,7 +824,7 @@ function beginDecisionReveal(choice, actorSeat) {
   if (choice !== "koi" && choice !== "agari") return;
   const result = state.pending;
   const awardedPoints = choice === "agari"
-    ? result.awardedPoints || result.potentialPoints || result.points * (state.koiCount[actorSeat] > 0 ? 2 : 1)
+    ? result.awardedPoints ?? result.potentialPoints ?? calculateRoundScore(result.points, actorSeat).awardedPoints
     : 0;
   state.phase = "decisionReveal";
   state.pending = { ...result, actorSeat, choice, awardedPoints };
@@ -783,12 +841,18 @@ function scheduleDecisionResolution(actorSeat, choice) {
     if (choice === "koi") {
       state.lastDeclared[actorSeat] = result.points;
       state.koiCount[actorSeat] += 1;
+      state.koiDeclarer = actorSeat;
       state.pending = null;
       endTurn();
       return;
     }
     state.scores[actorSeat] += result.awardedPoints;
-    state.lastResult = { winner: actorSeat, points: result.awardedPoints, yaku: result.yaku };
+    state.lastResult = {
+      winner: actorSeat,
+      points: result.awardedPoints,
+      yaku: result.yaku,
+      scoreNotes: result.scoreNotes || []
+    };
     state.pending = null;
     state.phase = state.round >= state.matchLength ? "matchEnd" : "roundEnd";
     persistAndRender();
@@ -797,8 +861,12 @@ function scheduleDecisionResolution(actorSeat, choice) {
 
 function endTurn() {
   if (!state.hands[0].length && !state.hands[1].length) {
-    state.scores[state.dealer] += 6;
-    state.lastResult = { winner: state.dealer, points: 6, yaku: ["親権 6文"] };
+    state.lastResult = {
+      winner: null,
+      points: 0,
+      yaku: ["ノーゲーム"],
+      nextDealer: 1 - state.dealer
+    };
     state.phase = state.round >= state.matchLength ? "matchEnd" : "roundEnd";
     state.pending = null;
     persistAndRender();
@@ -818,7 +886,8 @@ function endTurn() {
 function nextRound() {
   if (state.round >= state.matchLength) return;
   state.round += 1;
-  state.dealer = state.lastResult?.winner ?? state.dealer;
+  if (Number.isInteger(state.lastResult?.nextDealer)) state.dealer = state.lastResult.nextDealer;
+  else if (Number.isInteger(state.lastResult?.winner)) state.dealer = state.lastResult.winner;
   dealRound();
 }
 
@@ -1671,6 +1740,7 @@ function renderRulesYakuList() {
     { name: "雨四光", points: "8文", note: "雨を含む光札四枚。この組み合わせは成立例です", ids: [key("crane"), key("curtain"), key("moon"), key("rain")] },
     { name: "三光", points: "5文", note: "雨を除く光札三枚。この組み合わせは成立例です", ids: [key("crane"), key("curtain"), key("moon")] },
     { name: "猪鹿蝶", points: "5文", note: "萩の猪、紅葉の鹿、牡丹の蝶", ids: [key("boar"), key("deer"), key("butterfly")] },
+    { name: "赤短青短", points: "10文", note: "赤短三枚と青短三枚の組み合わせ", ids: ["1-2", "2-2", "3-2", "6-2", "9-2", "10-2"] },
     { name: "赤短", points: "5文", note: "松・梅・桜の文字入り短冊", ids: ["1-2", "2-2", "3-2"] },
     { name: "青短", points: "5文", note: "牡丹・菊・紅葉の青短冊", ids: ["6-2", "9-2", "10-2"] },
     { name: "花見酒", points: "5文", note: "桜の幕と菊の盃", ids: [key("curtain"), key("sake")] },
@@ -2263,6 +2333,11 @@ function yakuTitleMarkup(yaku = []) {
   return yakuNamesFrom(yaku).map((name) => `<span>${escapeHtml(name)}</span>`).join('<i aria-hidden="true">・</i>');
 }
 
+function scoreNotesMarkup(notes = []) {
+  if (!notes.length) return "";
+  return `<span class="score-modifiers">${notes.map(escapeHtml).join(" ／ ")}</span>`;
+}
+
 function renderChoice(self) {
   els.choice.replaceChildren();
   els.choice.removeAttribute("data-scene");
@@ -2277,7 +2352,7 @@ function renderChoice(self) {
     const yakuNames = yakuNamesFrom(state.pending.yaku);
     const panel = document.createElement("div");
     panel.className = "cut-in-panel cut-in-yaku";
-    panel.innerHTML = `<p class="cut-in-player">${escapeHtml(actorName)}</p><p class="result-kicker">役成立</p><h2 id="choiceHeading" class="yaku-title${yakuNames.length > 2 ? " many" : ""}" aria-label="${escapeHtml(yakuNames.join("、"))}">${yakuTitleMarkup(state.pending.yaku)}</h2><div id="choiceScore" class="choice-score yaku-score"><strong>${state.pending.potentialPoints || state.pending.points}</strong><small>文</small></div>`;
+    panel.innerHTML = `<p class="cut-in-player">${escapeHtml(actorName)}</p><p class="result-kicker">役成立</p><h2 id="choiceHeading" class="yaku-title${yakuNames.length > 2 ? " many" : ""}" aria-label="${escapeHtml(yakuNames.join("、"))}">${yakuTitleMarkup(state.pending.yaku)}</h2><div id="choiceScore" class="choice-score yaku-score"><strong>${state.pending.potentialPoints || state.pending.points}</strong><small>文</small>${scoreNotesMarkup(state.pending.scoreNotes)}</div>`;
     els.choice.append(panel);
     els.choice.dataset.scene = "yaku-reveal";
     els.choice.classList.add("cut-in-overlay");
@@ -2290,7 +2365,7 @@ function renderChoice(self) {
     const yakuNames = yakuNamesFrom(state.pending.yaku);
     const panel = document.createElement("div");
     panel.className = "choice-panel choice-panel-koi";
-    panel.innerHTML = `<h2 id="choiceHeading">こいこいしますか</h2><div id="choiceContext" class="choice-yaku choice-yaku-reminder"><span>${escapeHtml(yakuNames.join("・"))}</span><b>${state.pending.potentialPoints || state.pending.points}文</b></div><div class="choice-buttons"><button class="button" data-koi="koi">こいこい</button><button class="button primary" data-koi="agari">上がり</button></div>`;
+    panel.innerHTML = `<h2 id="choiceHeading">こいこいしますか</h2><div id="choiceContext" class="choice-yaku choice-yaku-reminder"><span>${escapeHtml(yakuNames.join("・"))}</span><b>${state.pending.potentialPoints || state.pending.points}文</b></div>${scoreNotesMarkup(state.pending.scoreNotes)}<div class="choice-buttons"><button class="button" data-koi="koi">こいこい</button><button class="button primary" data-koi="agari">上がり</button></div>`;
     panel.querySelectorAll("[data-koi]").forEach((button) => button.addEventListener("click", () => handleKoi(button.dataset.koi)));
     els.choice.append(panel);
     els.choice.dataset.scene = "koi-choice";
@@ -2308,7 +2383,7 @@ function renderChoice(self) {
     const caption = continued ? "勝負を続けます" : "この局を締めます";
     const panel = document.createElement("div");
     panel.className = `cut-in-panel cut-in-decision decision-${continued ? "koi" : "agari"}`;
-    panel.innerHTML = `<p class="cut-in-player">${escapeHtml(actorName)}</p><h2 id="choiceHeading">${heading}</h2><p class="cut-in-caption">${caption}</p>${continued ? "" : `<div id="choiceScore" class="choice-score decision-score">${state.pending.awardedPoints}<small>文</small></div>`}`;
+    panel.innerHTML = `<p class="cut-in-player">${escapeHtml(actorName)}</p><h2 id="choiceHeading">${heading}</h2><p class="cut-in-caption">${caption}</p>${continued ? "" : `<div id="choiceScore" class="choice-score decision-score">${state.pending.awardedPoints}<small>文</small>${scoreNotesMarkup(state.pending.scoreNotes)}</div>`}`;
     els.choice.append(panel);
     els.choice.dataset.scene = continued ? "decision-koi" : "decision-agari";
     els.choice.classList.add("cut-in-overlay", "decision-overlay");
@@ -2336,7 +2411,7 @@ function renderChoice(self) {
     const scoreLabel = final ? `<div class="result-score-label"><span>${escapeHtml(state.players[self])}</span><span>${escapeHtml(state.players[1 - self])}</span></div>` : "";
     const panel = document.createElement("div");
     panel.className = `choice-panel choice-panel-result result-${outcome}${final ? " result-final" : ""}`;
-    panel.innerHTML = `${resultAtmosphereMarkup(outcome)}<div class="result-seal" aria-hidden="true">${seal}</div><p class="result-kicker">${final ? `${matchLabel}決着` : "一局決着"}</p><h2 id="choiceHeading">${heading}</h2><p class="result-caption">${caption}</p><div class="choice-score">${score}</div>${scoreLabel}<div class="choice-yaku">${resultYakuMarkup(result.yaku)}</div><button class="button primary result-next" data-next>${final ? "タイトルに戻る" : "次の局へ"}</button>`;
+    panel.innerHTML = `${resultAtmosphereMarkup(outcome)}<div class="result-seal" aria-hidden="true">${seal}</div><p class="result-kicker">${final ? `${matchLabel}決着` : "一局決着"}</p><h2 id="choiceHeading">${heading}</h2><p class="result-caption">${caption}</p><div class="choice-score">${score}${final ? "" : scoreNotesMarkup(result.scoreNotes)}</div>${scoreLabel}<div class="choice-yaku">${resultYakuMarkup(result.yaku)}</div><button class="button primary result-next" data-next>${final ? "タイトルに戻る" : "次の局へ"}</button>`;
     panel.querySelector("[data-next]").addEventListener("click", () => {
       if (final) {
         returnToTitle();

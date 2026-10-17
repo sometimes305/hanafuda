@@ -8,7 +8,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <title>花札 こいこい</title>
-    <link rel="stylesheet" href="style.css?v=44" />
+    <link rel="stylesheet" href="style.css?v=45" />
     <script src="https://cdn.gravity.place/fe/sdk/index-1.0.2.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
   </head>
@@ -154,12 +154,48 @@
         <div class="rules-play-steps">
           <article class="rules-step"><span class="rules-step-number">一</span><div class="rules-step-copy"><strong>同じ月の札を合わせる</strong><p>手札から一枚出し、同じ月の場札があれば二枚とも取札にします。</p></div><div class="rules-visual" data-rules-example="match"></div></article>
           <article class="rules-step"><span class="rules-step-number">二</span><div class="rules-step-copy"><strong>山札を一枚めくる</strong><p>続けて山札をめくり、同じ月の札があれば同じように取ります。</p></div><div class="rules-visual" data-rules-example="draw"></div></article>
-          <article class="rules-step"><span class="rules-step-number">三</span><div class="rules-step-copy"><strong>役ができたら選ぶ</strong><p>「こいこい」で続けるか、「上がり」で文数を確定します。</p></div><div class="rules-visual rules-visual-yaku" data-rules-example="yaku"></div></article>
+          <article class="rules-step"><span class="rules-step-number">三</span><div class="rules-step-copy"><strong>役ができたら選ぶ</strong><p>最初の役ができたら「上がり」か「こいこい」を選びます。こいこい後は、次にどちらかの役が進んだ時点で局が終了します。</p></div><div class="rules-visual rules-visual-yaku" data-rules-example="yaku"></div></article>
         </div>
-        <p class="rules-match-note">対局前に3・6・12局から選び、全局の合計文数で勝敗を決めます。</p>
+        <div class="rules-details">
+          <section class="rules-detail-section">
+            <h3>準備と配札</h3>
+            <ul>
+              <li>最初に裏向きの札を選び、より早い月を引いた人が先攻の親になります。</li>
+              <li>場に二枚、相手に二枚、自分に二枚の順で四回配り、場札八枚・手札八枚ずつで始めます。</li>
+              <li>場に同じ月が四枚出た場合は配り直します。</li>
+              <li>最初の手札に同じ月が四枚ある「手四」、または同月二枚の組が四組ある「くっつき」が成立すると、その人の6文で局を終了します。</li>
+            </ul>
+          </section>
+          <section class="rules-detail-section">
+            <h3>札の取り方</h3>
+            <ul>
+              <li>同じ月の場札がなければ、出した札を場に残します。一枚ならその札と一緒に取ります。</li>
+              <li>同じ月の場札が二枚あるときは、どちらと合わせるかを選びます。三枚あるときは四枚すべてを取ります。</li>
+              <li>手札を出した後に山札を一枚めくり、同じ手順で場札と合わせます。ここまでで一手です。</li>
+            </ul>
+          </section>
+          <section class="rules-detail-section rules-detail-score">
+            <h3>上がり・こいこい・得点</h3>
+            <dl>
+              <div><dt>上がり</dt><dd>成立した役の合計文を獲得し、その局を終了します。合計7文以上は2倍です。</dd></div>
+              <div><dt>こいこい</dt><dd>得点を確定せず続行します。その後は、どちらかの役が新しく成立・加点した時点で自動的に上がります。</dd></div>
+              <div><dt>こいこい返し</dt><dd>相手のこいこい後に役を作ると、相手は0文、自分の出来役合計はさらに2倍になります。</dd></div>
+            </dl>
+          </section>
+          <section class="rules-detail-section">
+            <h3>局の終了と親</h3>
+            <ul>
+              <li>上がった人が次の局の親になります。</li>
+              <li>両者の手札がなくなっても役がなければ0文のノーゲームとなり、親を交代します。</li>
+              <li>任天堂の標準ルールは十二局です。このゲームでは短時間用に三局・六局も選べます。</li>
+            </ul>
+          </section>
+        </div>
+        <p class="rules-match-note">全局終了時の合計文数が多い人の勝ちです。菊に盃は、たね札と同時にかす札としても数えます。</p>
+        <a class="rules-source" href="https://www.nintendo.com/jp/others/hanafuda_kabufuda/howtoplay/koikoi/index.html" target="_blank" rel="noopener noreferrer">任天堂「こいこい」の遊びかたを見る</a>
       </section>
       <section id="rulesPanelYaku" class="rules-panel" role="tabpanel" aria-labelledby="rulesTabYaku" data-rules-panel="yaku" hidden>
-        <p class="rules-panel-intro">役になる札の組み合わせと文数です。</p>
+        <p class="rules-panel-intro">役になる札の組み合わせと文数です。複数の役は合算され、合計7文以上なら獲得文数が2倍になります。</p>
         <div id="rulesYakuList" class="rules-yaku-list"></div>
       </section>
       <section id="rulesPanelMonths" class="rules-panel" role="tabpanel" aria-labelledby="rulesTabMonths" data-rules-panel="months" hidden>
@@ -177,7 +213,7 @@
     </dialog>
 
     <script src="cards.js?v=3"></script>
-    <script src="app.js?v=47"></script>
+    <script src="app.js?v=48"></script>
     <script src="online.js?v=4"></script>
     <script>
       (() => {
