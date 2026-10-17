@@ -969,13 +969,30 @@ function warmCardArtworkCache() {
 
 function previewCaptureFor(cardId, active = true) {
   const month = CARD_MAP.get(cardId)?.month;
+  const targeting = Boolean(active && Number.isInteger(month));
+  els.field.classList.toggle("targeting", targeting);
   els.field.querySelectorAll(".card").forEach((element) => {
-    element.classList.toggle("preview-match", Boolean(active && Number(element.dataset.month) === month));
+    const matches = targeting && Number(element.dataset.month) === month;
+    element.classList.toggle("preview-match", matches);
+    element.classList.toggle("selection-muted", targeting && !matches);
+  });
+}
+
+function previewFieldTargets(cardIds = []) {
+  const targets = new Set(cardIds);
+  els.field.classList.toggle("targeting", targets.size > 0);
+  els.field.querySelectorAll(".card").forEach((element) => {
+    const matches = targets.has(element.dataset.cardId);
+    element.classList.toggle("preview-match", matches);
+    element.classList.toggle("selection-muted", targets.size > 0 && !matches);
   });
 }
 
 function clearCapturePreview() {
-  els.field.querySelectorAll(".card.preview-match").forEach((element) => element.classList.remove("preview-match"));
+  els.field.classList.remove("targeting");
+  els.field.querySelectorAll(".card").forEach((element) => {
+    element.classList.remove("preview-match", "selection-muted");
+  });
 }
 
 function requiresTapConfirmation() {
@@ -1628,15 +1645,6 @@ function getYakuProgress(ids) {
     .sort((a, b) => (a.status === "reach" ? -1 : 0) - (b.status === "reach" ? -1 : 0) || (b.current / b.target) - (a.current / a.target) || b.points - a.points);
 }
 
-function captureCounts(ids) {
-  const counts = { bright: 0, animal: 0, ribbon: 0, chaff: 0 };
-  ids.forEach((id) => {
-    const card = CARD_MAP.get(id);
-    if (card) counts[card.type] += 1;
-  });
-  return counts;
-}
-
 function renderCapturedRail(target, ids) {
   if (!target) return;
   const previousRects = snapshotCardRects(target.querySelectorAll(".capture-rail-card"), (element) => element.dataset.cardId);
@@ -1664,10 +1672,8 @@ function renderCaptureDialog(seat) {
   const self = localSeat();
   const ids = state.captures[seat] || [];
   const owner = seat === self ? "自分" : (state.players[seat] || "相手");
-  const counts = captureCounts(ids);
   dialog.dataset.seat = String(seat);
   document.querySelector("#captureDialogTitle").textContent = `${owner}の取札`;
-  document.querySelector("#captureDialogSummary").textContent = `${ids.length}枚　光 ${counts.bright}・たね ${counts.animal}・短冊 ${counts.ribbon}・かす ${counts.chaff}`;
   groupsRoot.replaceChildren();
 
   if (!ids.length) {
@@ -1931,14 +1937,13 @@ function render() {
   const canPlay = isLocalTurn();
   const localHand = visibleHand();
   if (!canPlay || !localHand.includes(selectedHandCardId)) selectedHandCardId = null;
-  const playableMonths = new Set(canPlay ? localHand.map((id) => CARD_MAP.get(id)?.month) : []);
   els.field.replaceChildren();
   state.field.forEach((id) => {
     const handMatchable = state.phase === "select" && state.pending?.matches?.includes(id) && state.pending.actorSeat === self;
     const drawMatchable = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.includes(id);
     const drawTarget = state.phase === "drawReady" && state.pending?.actorSeat === self && state.pending?.matches?.includes(id);
     const matchable = handMatchable || drawMatchable;
-    const takeable = (canPlay && playableMonths.has(CARD_MAP.get(id)?.month)) || drawTarget;
+    const takeable = handMatchable || drawTarget;
     const element = createCardElement(id, { button: matchable, matchable, takeable });
     if (handMatchable) element.addEventListener("click", () => handleMatchClick(id, element));
     else if (drawMatchable) element.addEventListener("click", () => handleDrawConfirm(id));
@@ -1948,27 +1953,19 @@ function render() {
 
   els.hand.replaceChildren();
   localHand.forEach((id) => {
-    const month = CARD_MAP.get(id)?.month;
-    const canCapture = canPlay && state.field.some((fieldId) => CARD_MAP.get(fieldId)?.month === month);
-    const element = createCardElement(id, { button: canPlay, playable: canPlay, canCapture });
+    const element = createCardElement(id, { button: canPlay, playable: canPlay });
     const selected = canPlay && selectedHandCardId === id;
     element.classList.toggle("selected", selected);
     if (canPlay) element.setAttribute("aria-pressed", String(selected));
     if (canPlay) {
-      element.addEventListener("pointerenter", () => previewCaptureFor(id, true));
-      element.addEventListener("pointerleave", () => {
-        if (selectedHandCardId !== id) clearCapturePreview();
-      });
-      element.addEventListener("pointerdown", () => previewCaptureFor(id, true));
-      element.addEventListener("focus", () => previewCaptureFor(id, true));
-      element.addEventListener("blur", () => {
-        if (selectedHandCardId !== id) clearCapturePreview();
-      });
       element.addEventListener("click", () => handleHandClick(id, element));
     }
     els.hand.append(element);
   });
   if (!dealing) animateCardReflow(els.hand.querySelectorAll(".card"), previousHandRects, (element) => element.dataset.cardId);
+  if (canPlay && selectedHandCardId) previewCaptureFor(selectedHandCardId, true);
+  else if ((state.phase === "select" || state.phase === "drawReady") && state.pending?.actorSeat === self) previewFieldTargets(state.pending?.matches || []);
+  else clearCapturePreview();
 
   renderDeck();
   renderPendingPlayedCard();
@@ -2440,8 +2437,45 @@ document.querySelectorAll("[data-rules-tab]").forEach((button) => {
   });
 });
 document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
-document.querySelector("#captureDialog").addEventListener("click", (event) => {
-  if (event.target === event.currentTarget) event.currentTarget.close();
+const captureDialog = document.querySelector("#captureDialog");
+let captureSheetPointerId = null;
+let captureSheetStartY = 0;
+let captureSheetOffsetY = 0;
+
+function resetCaptureSheetDrag() {
+  captureSheetPointerId = null;
+  captureSheetOffsetY = 0;
+  captureDialog.classList.remove("dragging");
+  captureDialog.style.removeProperty("--capture-sheet-y");
+}
+
+captureDialog.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest(".capture-dialog-head") || event.target.closest("[data-close-dialog]")) return;
+  captureSheetPointerId = event.pointerId;
+  captureSheetStartY = event.clientY;
+  captureSheetOffsetY = 0;
+  captureDialog.classList.add("dragging");
+  captureDialog.setPointerCapture(event.pointerId);
+});
+captureDialog.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== captureSheetPointerId) return;
+  captureSheetOffsetY = Math.max(0, event.clientY - captureSheetStartY);
+  captureDialog.style.setProperty("--capture-sheet-y", `${captureSheetOffsetY}px`);
+});
+captureDialog.addEventListener("pointerup", (event) => {
+  if (event.pointerId !== captureSheetPointerId) return;
+  if (captureDialog.hasPointerCapture(event.pointerId)) captureDialog.releasePointerCapture(event.pointerId);
+  const shouldClose = captureSheetOffsetY >= 72;
+  resetCaptureSheetDrag();
+  if (shouldClose) captureDialog.close();
+});
+captureDialog.addEventListener("pointercancel", resetCaptureSheetDrag);
+captureDialog.addEventListener("close", resetCaptureSheetDrag);
+captureDialog.addEventListener("click", (event) => {
+  if (event.target !== event.currentTarget) return;
+  const rect = captureDialog.getBoundingClientRect();
+  const insideSheet = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+  if (!insideSheet) captureDialog.close();
 });
 document.querySelector("#backLobbyButton").addEventListener("click", returnToTitle);
 
