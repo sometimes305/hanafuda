@@ -36,6 +36,8 @@ const ROUND_DEAL_HOLD_DURATION = 480;
 const REDUCED_ROUND_DEAL_CARD_DURATION = 260;
 const REDUCED_ROUND_DEAL_STAGGER = 24;
 const REDUCED_ROUND_DEAL_HOLD_DURATION = 90;
+const CARD_DRAG_START_DISTANCE = 8;
+const CARD_DRAG_CANCEL_DURATION = 180;
 const CARD_MAP = new Map(window.HanafudaCards.cards.map((card) => [card.id, card]));
 const CARD_ID_BY_KEY = new Map(window.HanafudaCards.cards.filter((card) => card.key !== "plain").map((card) => [card.key, card.id]));
 const CARD_ART_READY = new Map();
@@ -62,6 +64,8 @@ let remoteStateQueue = Promise.resolve();
 let remoteDrawStartedAt = 0;
 let lastAnimatedDealKey = null;
 let renderedOpeningDrawKey = null;
+let activeCardDrag = null;
+let suppressCardClickUntil = 0;
 
 let state = createInitialState();
 
@@ -1062,7 +1066,7 @@ function matchingFieldLandingPoint(elements) {
 
 async function animateDrawnCardToField(cardId, fieldCardId = null, options = {}) {
   const sourceElement = els.drawnCardPreview.querySelector(`[data-card-id="${cardId}"]`);
-  const sourceRect = sourceElement?.getBoundingClientRect();
+  const sourceRect = options.sourceRect || sourceElement?.getBoundingClientRect();
   if (!sourceRect) return;
   const month = CARD_MAP.get(cardId)?.month;
   const allMatches = [...els.field.querySelectorAll(".card")].filter((element) => Number(element.dataset.month) === month);
@@ -1301,7 +1305,7 @@ async function handleHandClick(cardId, sourceElement, options = {}) {
   interactionLocked = true;
   const sendsOnline = Boolean(window.TierOnline?.shouldSendAction());
   previewCaptureFor(cardId, true);
-  await animatePlayedCard(sourceElement, cardId, { keepSourceCommitted: sendsOnline, fieldCardId: options.fieldCardId });
+  await animatePlayedCard(sourceElement, cardId, { keepSourceCommitted: sendsOnline, fieldCardId: options.fieldCardId, sourceRect: options.sourceRect });
   clearCapturePreview();
   if (sendsOnline) {
     window.TierOnline.sendAction({ type: "play", cardId, playerName: localPlayerName });
@@ -1334,7 +1338,7 @@ async function handleSelectedFieldTap(fieldCardId) {
   await handleHandClick(cardId, sourceElement, { fieldCardId });
 }
 
-async function handleDrawConfirm(fieldCardId = null) {
+async function handleDrawConfirm(fieldCardId = null, options = {}) {
   if (state.phase !== "drawReady" || state.pending?.actorSeat !== localSeat() || interactionLocked) return;
   const matches = state.pending.matches || [];
   if (matches.length === 2 && !matches.includes(fieldCardId)) return;
@@ -1342,7 +1346,7 @@ async function handleDrawConfirm(fieldCardId = null) {
   const drawnCard = state.pending.drawnCard;
   interactionLocked = true;
   const sendsOnline = Boolean(window.TierOnline?.shouldSendAction());
-  await animateDrawnCardToField(drawnCard, targetId, { keepAtTarget: true });
+  await animateDrawnCardToField(drawnCard, targetId, { keepAtTarget: true, sourceRect: options.sourceRect });
   if (sendsOnline) {
     window.TierOnline.sendAction({ type: "drawConfirm", cardId: fieldCardId, playerName: localPlayerName });
     scheduleInteractionUnlock(6000, () => {
@@ -1351,6 +1355,176 @@ async function handleDrawConfirm(fieldCardId = null) {
     });
   } else await resolveDraw(fieldCardId, localSeat(), { preAnimated: true });
   if (!sendsOnline) scheduleInteractionUnlock(130);
+}
+
+function pointInsideRect(x, y, rect) {
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+}
+
+function currentCardDragMatches(drag) {
+  if (drag.sourceType === "draw") {
+    if (state.phase !== "drawReady" || state.pending?.actorSeat !== localSeat() || state.pending?.drawnCard !== drag.cardId) return [];
+    return (state.pending.matches || []).filter((id) => state.field.includes(id));
+  }
+  if (!isLocalTurn() || !visibleHand().includes(drag.cardId)) return [];
+  const month = CARD_MAP.get(drag.cardId)?.month;
+  return state.field.filter((id) => CARD_MAP.get(id)?.month === month);
+}
+
+function resolveCardDragDrop(drag, x, y) {
+  if (drag.sourceType === "hand" && (!isLocalTurn() || !visibleHand().includes(drag.cardId))) return { valid: false, matches: [] };
+  if (drag.sourceType === "draw" && (state.phase !== "drawReady" || state.pending?.actorSeat !== localSeat())) return { valid: false, matches: [] };
+  const fieldRect = els.field.getBoundingClientRect();
+  const matches = currentCardDragMatches(drag);
+  if (!pointInsideRect(x, y, fieldRect)) return { valid: false, matches };
+  const pointedCard = document.elementFromPoint(x, y)?.closest("#fieldCards .card[data-card-id]");
+  if (matches.length === 2) {
+    const targetId = pointedCard?.dataset.cardId;
+    return { valid: Boolean(targetId && matches.includes(targetId)), fieldCardId: targetId || null, matches };
+  }
+  return { valid: true, fieldCardId: matches.length === 1 ? matches[0] : null, matches };
+}
+
+function clearCardDragAffordances() {
+  els.field.classList.remove("drag-ready", "drag-over");
+  els.field.querySelectorAll(".card.drag-over").forEach((element) => element.classList.remove("drag-over"));
+}
+
+function updateCardDragAffordances(drag, x, y) {
+  const drop = resolveCardDragDrop(drag, x, y);
+  clearCardDragAffordances();
+  els.field.classList.add("drag-ready");
+  els.field.classList.toggle("drag-over", drop.valid);
+  if (drop.valid && drop.fieldCardId) {
+    els.field.querySelector(`[data-card-id="${drop.fieldCardId}"]`)?.classList.add("drag-over");
+  }
+  drag.drop = drop;
+}
+
+function positionCardDrag(drag, x, y) {
+  const width = drag.cardRect.width;
+  const height = drag.cardRect.height;
+  const left = Math.max(4, Math.min(window.innerWidth - width - 4, x - width / 2));
+  const top = Math.max(4, Math.min(window.innerHeight - height - 4, y - height * .72));
+  drag.currentRect = { left, top, width, height };
+  drag.clone.style.left = `${left}px`;
+  drag.clone.style.top = `${top}px`;
+}
+
+function activateCardDrag(drag, event) {
+  drag.active = true;
+  if (drag.sourceType === "hand") updateHandSelection(drag.cardId);
+  drag.cardRect = drag.sourceElement.getBoundingClientRect();
+  const clone = createCardElement(drag.cardId);
+  clone.className = "card drag-card";
+  clone.setAttribute("aria-hidden", "true");
+  Object.assign(clone.style, {
+    width: `${drag.cardRect.width}px`,
+    height: `${drag.cardRect.height}px`
+  });
+  drag.clone = clone;
+  drag.sourceElement.classList.add("drag-source");
+  document.body.append(clone);
+  positionCardDrag(drag, event.clientX, event.clientY);
+  updateCardDragAffordances(drag, event.clientX, event.clientY);
+}
+
+function beginCardDrag(event) {
+  if (activeCardDrag || interactionLocked || !event.isPrimary || event.button !== 0) return;
+  const handCard = event.target.closest("#playerHand .card.playable[data-card-id]");
+  const drawnCard = event.target.closest("#drawnCardPreview.ready .drawn-card[data-card-id]");
+  let sourceType = null;
+  let sourceElement = null;
+  if (handCard && isLocalTurn()) {
+    sourceType = "hand";
+    sourceElement = handCard;
+  } else if (drawnCard && state.phase === "drawReady" && state.pending?.actorSeat === localSeat()) {
+    sourceType = "draw";
+    sourceElement = drawnCard;
+  }
+  if (!sourceElement) return;
+  activeCardDrag = {
+    pointerId: event.pointerId,
+    sourceType,
+    sourceElement,
+    cardId: sourceElement.dataset.cardId,
+    startX: event.clientX,
+    startY: event.clientY,
+    homeRect: sourceElement.getBoundingClientRect(),
+    previousSelectedHandCardId: selectedHandCardId,
+    active: false,
+    clone: null,
+    currentRect: null,
+    drop: null
+  };
+  try { sourceElement.setPointerCapture(event.pointerId); } catch (_error) { /* Pointer capture is an enhancement. */ }
+}
+
+function moveCardDrag(event) {
+  const drag = activeCardDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  if (!drag.active) {
+    const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+    if (distance < CARD_DRAG_START_DISTANCE) return;
+    activateCardDrag(drag, event);
+  }
+  event.preventDefault();
+  positionCardDrag(drag, event.clientX, event.clientY);
+  updateCardDragAffordances(drag, event.clientX, event.clientY);
+}
+
+function animateCardDragBack(drag) {
+  const current = drag.currentRect || drag.homeRect;
+  const dx = drag.homeRect.left - current.left;
+  const dy = drag.homeRect.top - current.top;
+  const animation = drag.clone.animate([
+    { transform: "translate3d(0, 0, 0) rotate(1.5deg) scale(1.055)", opacity: 1 },
+    { transform: `translate3d(${dx}px, ${dy}px, 0) rotate(0deg) scale(1)`, opacity: .45 }
+  ], { duration: prefersReducedMotion() ? 1 : CARD_DRAG_CANCEL_DURATION, easing: "cubic-bezier(.22, 1, .36, 1)", fill: "forwards" });
+  animation.finished.catch(() => {}).finally(() => {
+    drag.clone.remove();
+    drag.sourceElement.classList.remove("drag-source");
+  });
+}
+
+function performCardDrop(drag, drop) {
+  const sourceRect = drag.currentRect;
+  drag.clone.remove();
+  if (drag.sourceType === "hand") {
+    const fieldCardId = drop.matches.length === 1 ? drop.matches[0] : drop.matches.length === 2 ? drop.fieldCardId : null;
+    if (drop.matches.length === 2) queueNextInput({ type: "match", cardId: fieldCardId, prePositioned: true });
+    void handleHandClick(drag.cardId, drag.sourceElement, { fieldCardId, sourceRect })
+      .finally(() => drag.sourceElement.classList.remove("drag-source"));
+    return;
+  }
+  const fieldCardId = drop.matches.length === 2 ? drop.fieldCardId : null;
+  void handleDrawConfirm(fieldCardId, { sourceRect })
+    .finally(() => drag.sourceElement.classList.remove("drag-source"));
+}
+
+function endCardDrag(event, cancelled = false) {
+  const drag = activeCardDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  activeCardDrag = null;
+  if (drag.sourceElement.hasPointerCapture?.(event.pointerId)) drag.sourceElement.releasePointerCapture(event.pointerId);
+  if (!drag.active) return;
+  event.preventDefault();
+  suppressCardClickUntil = performance.now() + 240;
+  const drop = cancelled ? { valid: false, matches: [] } : resolveCardDragDrop(drag, event.clientX, event.clientY);
+  clearCardDragAffordances();
+  if (drop.valid) {
+    performCardDrop(drag, drop);
+    return;
+  }
+  if (drag.sourceType === "hand") updateHandSelection(drag.previousSelectedHandCardId);
+  animateCardDragBack(drag);
+}
+
+function suppressClickAfterCardDrag(event) {
+  if (performance.now() > suppressCardClickUntil) return;
+  if (!event.target.closest("#playerHand .card, #drawnCardPreview .card, #fieldCards .card")) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
 }
 
 function handleGameTap(event) {
@@ -1433,7 +1607,7 @@ function createCardElement(id, options = {}) {
   const card = CARD_MAP.get(id);
   const element = document.createElement(options.button ? "button" : "div");
   if (options.button) element.type = "button";
-  element.className = `card${options.back ? " back" : ""}${options.playable ? " playable" : ""}${options.matchable ? " matchable" : ""}${options.canCapture ? " can-capture" : ""}${options.takeable ? " takeable" : ""}${options.drawn ? " drawn-card" : ""}`;
+  element.className = `card${options.back ? " back" : ""}${options.playable ? " playable" : ""}${options.matchable ? " matchable" : ""}${options.captureOption ? " capture-option" : ""}${options.canCapture ? " can-capture" : ""}${options.takeable ? " takeable" : ""}${options.drawn ? " drawn-card" : ""}`;
   if (options.back) {
     element.setAttribute("aria-label", "伏せ札");
     return element;
@@ -1445,7 +1619,7 @@ function createCardElement(id, options = {}) {
   element.dataset.key = card.key;
   element.innerHTML = `<span class="card-face"><img class="card-art" src="${card.asset}" alt="" draggable="false" /></span>${options.canCapture || options.takeable ? '<span class="capture-indicator" aria-hidden="true">取</span>' : ""}`;
   element.querySelector(".card-face").style.backgroundImage = `url("${card.asset}")`;
-  element.setAttribute("aria-label", `${card.month}月 ${card.monthName} ${typeLabel(card.type)}${options.canCapture || options.takeable ? "、取れる札" : ""}`);
+  element.setAttribute("aria-label", `${card.month}月 ${card.monthName} ${typeLabel(card.type)}${options.captureOption ? "、場に同じ月の札あり" : options.canCapture || options.takeable ? "、取れる札" : ""}`);
   return element;
 }
 
@@ -1953,7 +2127,9 @@ function render() {
 
   els.hand.replaceChildren();
   localHand.forEach((id) => {
-    const element = createCardElement(id, { button: canPlay, playable: canPlay });
+    const month = CARD_MAP.get(id)?.month;
+    const captureOption = canPlay && state.field.some((fieldId) => CARD_MAP.get(fieldId)?.month === month);
+    const element = createCardElement(id, { button: canPlay, playable: canPlay, captureOption });
     const selected = canPlay && selectedHandCardId === id;
     element.classList.toggle("selected", selected);
     if (canPlay) element.setAttribute("aria-pressed", String(selected));
@@ -2405,6 +2581,11 @@ window.TierGame = window.HanafudaGame;
 
 document.querySelector("#soloButton").addEventListener("click", startSolo);
 document.querySelector("#startOnlineButton").addEventListener("click", startOnlineGame);
+els.game.addEventListener("click", suppressClickAfterCardDrag, true);
+els.game.addEventListener("pointerdown", beginCardDrag);
+window.addEventListener("pointermove", moveCardDrag, { passive: false });
+window.addEventListener("pointerup", (event) => endCardDrag(event));
+window.addEventListener("pointercancel", (event) => endCardDrag(event, true));
 els.game.addEventListener("click", handleGameTap);
 document.querySelector(".table-zone").addEventListener("click", handleTableTap);
 els.turnBanner.addEventListener("click", () => {
